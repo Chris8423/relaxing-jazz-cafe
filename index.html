@@ -439,7 +439,7 @@
     const SECRET_PASSWORD = "320137";
     let isUnlocked = false;
 
-    let articlesData = []; // 雲端載入的資料結構
+    let articlesData = []; // 雲端載入合併後的資料結構
     let currentCategory = null;
     let currentChapterIndex = -1;
 
@@ -457,12 +457,14 @@
         const { data, error } = await dbClient
           .from('articles')
           .select('*')
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: true });
 
         if (error) throw error;
 
-        // 將 Supabase 資料對應為您原本的結構
-        articlesData = (data || []).map(art => {
+        // 智慧合併：將相同分類且相同系列名稱的文章合併成同一個系列
+        const map = {};
+
+        (data || []).forEach(art => {
           let parsedChapters = [];
           if (Array.isArray(art.chapters) && art.chapters.length > 0) {
             parsedChapters = art.chapters;
@@ -472,7 +474,6 @@
             parsedChapters = [{ title: "全文", content: "無內容" }];
           }
 
-          // 智慧檔名解析 (群組_系列_篇章)
           const rawTitle = art.title || art.category_title || "未命名";
           let groupName = art.group || "其他";
           let seriesTitle = rawTitle;
@@ -485,16 +486,28 @@
             seriesTitle = parts[0].trim();
           }
 
-          return {
-            id: art.id,
-            group: groupName,
-            categoryTitle: seriesTitle,
-            rawTitle: rawTitle,
-            is_private: art.is_private === true,
-            created_at: art.created_at,
-            chapters: parsedChapters
-          };
+          // 建立唯一 key 用來判斷是否為同系列 (分類 + 系列名稱)
+          const mapKey = `${groupName}_${seriesTitle}`;
+
+          if (!map[mapKey]) {
+            map[mapKey] = {
+              id: art.id, // 保留第一筆的 id 作為代表
+              sourceIds: [art.id], // 記錄所有被合併的原始 id，以便刪除時一起清理
+              group: groupName,
+              categoryTitle: seriesTitle,
+              rawTitle: rawTitle,
+              is_private: art.is_private === true,
+              created_at: art.created_at,
+              chapters: [...parsedChapters]
+            };
+          } else {
+            map[mapKey].sourceIds.push(art.id);
+            // 把後續上傳的章節追加合併進去
+            map[mapKey].chapters.push(...parsedChapters);
+          }
         });
+
+        articlesData = Object.values(map);
 
         statusBadge.textContent = "☁️ 已連線雲端";
         statusBadge.style.color = "#81c784";
@@ -543,12 +556,11 @@
       document.getElementById('togglePrivateBtn').classList.add('hidden');
     }
 
-    // 當切換下拉大分類時觸發
     function onGroupChange() {
       renderCategories();
     }
 
-    // 1. 第一層：顯示所有文章系列（受大分類下拉篩選 & 私密開關控制）
+    // 第一層：顯示所有文章系列
     function renderCategories() {
       currentCategory = null;
       currentChapterIndex = -1;
@@ -561,7 +573,6 @@
       backBtn.classList.add('hidden');
       menuList.innerHTML = '';
 
-      // 過濾大分類，並依據是否解鎖來決定是否顯示私密文章
       const filteredData = articlesData.filter(cat => {
         if (!isUnlocked && cat.is_private) return false;
         if (selectedGroup === 'ALL') return true;
@@ -598,14 +609,16 @@
       });
     }
 
-    // 刪除整個系列 (同步雲端)
+    // 刪除整個系列 (會將該系列對應的所有雲端原始檔案一併刪除)
     async function deleteCategory(event, catIndex) {
       event.stopPropagation();
       const cat = articlesData[catIndex];
       if (confirm(`確定要刪除整個【${cat.categoryTitle}】系列及其所有篇章嗎？`)) {
         try {
-          const { error } = await dbClient.from('articles').delete().eq('id', cat.id);
-          if (error) throw error;
+          // 將該系列包含的所有原始資料 id 全部從 Supabase 刪除
+          for (const id of cat.sourceIds) {
+            await dbClient.from('articles').delete().eq('id', id);
+          }
 
           articlesData.splice(catIndex, 1);
           renderCategories();
@@ -617,7 +630,7 @@
       }
     }
 
-    // 2. 第二層：點擊系列後，直接列出該系列下的篇章
+    // 第二層：點擊系列後，列出該系列下的所有篇章
     function renderChapters(category) {
       currentCategory = category;
       const menuList = document.getElementById('menu-list');
@@ -649,7 +662,6 @@
       });
     }
 
-    // 選擇並顯示篇章內文
     function selectChapter(index) {
       if (!currentCategory || index < 0 || index >= currentCategory.chapters.length) return;
       
@@ -659,7 +671,6 @@
       document.getElementById('article-title').innerText = chapter.title;
       document.getElementById('article-body').innerHTML = chapter.content;
 
-      // 顯示私密切換按鈕並更新狀態文字
       const togglePrivateBtn = document.getElementById('togglePrivateBtn');
       togglePrivateBtn.classList.remove('hidden');
       togglePrivateBtn.textContent = currentCategory.is_private ? "🔓 取消私密" : "🔒 設為私密";
@@ -673,7 +684,6 @@
       nextBtn.classList.toggle('disabled', index >= currentCategory.chapters.length - 1);
     }
 
-    // 按下「上一篇 / 下一篇」
     function navigateChapter(direction) {
       const newIndex = currentChapterIndex + direction;
       if (currentCategory && newIndex >= 0 && newIndex < currentCategory.chapters.length) {
@@ -685,7 +695,6 @@
       }
     }
 
-    // 切換私密區解鎖狀態
     function toggleSecretArea() {
       if (isUnlocked) {
         isUnlocked = false;
@@ -708,14 +717,14 @@
       }
     }
 
-    // 切換目前文章的私密屬性 (同步雲端)
     async function toggleCurrentPrivate() {
       if (!currentCategory) return;
       const newStatus = !currentCategory.is_private;
 
       try {
-        const { error } = await dbClient.from('articles').update({ is_private: newStatus }).eq('id', currentCategory.id);
-        if (error) throw error;
+        for (const id of currentCategory.sourceIds) {
+          await dbClient.from('articles').update({ is_private: newStatus }).eq('id', id);
+        }
 
         currentCategory.is_private = newStatus;
         selectChapter(currentChapterIndex);
@@ -727,7 +736,6 @@
       }
     }
 
-    // Word 檔案解析與自動上傳至 Supabase
     async function handleWordUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -772,20 +780,15 @@
         const { error } = await dbClient.from('articles').insert([payload]);
         if (error) throw error;
 
-        const newArticleObj = {
-          id: customId,
-          group: groupName,
-          categoryTitle: seriesTitle,
-          rawTitle: fullFileName,
-          is_private: false,
-          created_at: new Date().toISOString(),
-          chapters: chaptersArray
-        };
+        // 重新從雲端載入以確保合併邏輯正確執行
+        await fetchArticlesFromSupabase();
 
-        articlesData.unshift(newArticleObj);
-        renderCategories();
-        renderChapters(newArticleObj);
-        selectChapter(0);
+        // 自動定位到剛上傳的系列與章節
+        const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
+        if (matchedCat) {
+          renderChapters(matchedCat);
+          selectChapter(0);
+        }
 
         statusBadge.textContent = "☁️ 已連線雲端";
         alert(`匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`);
