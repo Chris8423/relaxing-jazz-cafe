@@ -359,8 +359,11 @@
       line-height: 1.8;
       color: #d4d4d4;
       flex: 1;
-      text-indent: 2em; /* 👈 加入這一行：強制每段開頭自動空兩格 */
+      text-indent: 2em; /* 每段開頭自動空兩格 */
     }
+
+    .article-body p {
+      margin-bottom: 1.8rem; /* 段落與段落之間自動產生空行距離 */
     }
 
     .article-body p {
