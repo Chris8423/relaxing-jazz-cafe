@@ -157,7 +157,7 @@
       border-style: solid;
     }
 
-    /* 章節額外工具列（搜尋與分段） */
+    /* 章節專屬工具列（搜尋與分段） */
     .chapter-tools {
       padding: 10px 15px;
       background-color: #181818;
@@ -397,15 +397,15 @@
     <!-- 左側欄：文章選單 -->
     <div class="sidebar">
       
-      <!-- 大分類下拉選單 -->
+      <!-- 大分類下拉選單 (已更新為：個人、工作、情報、成人) -->
       <div id="group-filter-section" class="category-filter-section">
         <label for="group-select">分類：</label>
         <select id="group-select" class="category-select" onchange="onGroupChange()">
           <option value="ALL">全部類別</option>
-          <option value="娛樂">娛樂</option>
+          <option value="個人">個人</option>
           <option value="工作">工作</option>
-          <option value="建議">建議</option>
-          <option value="其他">其他</option>
+          <option value="情報">情報</option>
+          <option value="成人">成人</option>
         </select>
       </div>
 
@@ -482,6 +482,8 @@
         if (error) throw error;
 
         const map = {};
+        const validGroups = ['個人', '工作', '情報', '成人'];
+
         (data || []).forEach(art => {
           let parsedChapters = [];
           if (Array.isArray(art.chapters) && art.chapters.length > 0) {
@@ -493,15 +495,23 @@
           }
 
           const rawTitle = art.title || art.category_title || "未命名";
-          let groupName = art.group || "其他";
+          let groupName = art.group || "個人";
           let seriesTitle = rawTitle;
 
           const parts = rawTitle.split(/[_ -]+/);
-          if (parts.length >= 3 && ['工作','娛樂','建議','其他'].includes(parts[0].trim())) {
+          if (parts.length >= 3 && validGroups.includes(parts[0].trim())) {
             groupName = parts[0].trim();
             seriesTitle = parts[1].trim();
+          } else if (parts.length >= 2 && validGroups.includes(parts[0].trim())) {
+            groupName = parts[0].trim();
+            seriesTitle = parts.slice(1).join("_").trim();
           } else if (parts.length >= 2) {
             seriesTitle = parts[0].trim();
+          }
+
+          // 確保分類如果不在指定清單內，歸類到「個人」
+          if (!validGroups.includes(groupName)) {
+            groupName = "個人";
           }
 
           const mapKey = `${groupName}_${seriesTitle}`;
@@ -597,7 +607,7 @@
       const filteredData = articlesData.filter(cat => {
         if (!isUnlocked && cat.is_private) return false;
         if (selectedGroup === 'ALL') return true;
-        return (cat.group || '其他') === selectedGroup;
+        return (cat.group || '個人') === selectedGroup;
       });
 
       if (filteredData.length === 0) {
@@ -612,7 +622,7 @@
         
         li.innerHTML = `
           <div style="display:flex; align-items:center; overflow:hidden;">
-            ${selectedGroup === 'ALL' ? `<span class="tag-badge">${cat.group || '其他'}</span>` : ''}
+            ${selectedGroup === 'ALL' ? `<span class="tag-badge">${cat.group || '個人'}</span>` : ''}
             ${cat.is_private ? '<span class="private-badge">🔒</span>' : ''}
             <span class="item-title">${cat.categoryTitle}</span>
           </div>
@@ -657,7 +667,6 @@
       const importSection = document.getElementById('import-section');
       const chapterTools = document.getElementById('chapter-tools');
 
-      // 進入章節層級時，隱藏大分類與匯入按鈕，顯示章節搜尋工具列
       groupFilterSection.classList.add('hidden');
       importSection.classList.add('hidden');
       chapterTools.classList.remove('hidden');
@@ -678,7 +687,6 @@
       }
 
       chaptersToDisplay.forEach((chap) => {
-        // 找出原本在總陣列中的真實索引
         const realIndex = currentCategory.chapters.indexOf(chap);
         const li = document.createElement('li');
         li.className = 'menu-item';
@@ -698,7 +706,6 @@
       });
     }
 
-    // 章節即時搜尋功能
     function filterChapters() {
       if (!currentCategory) return;
       const keyword = document.getElementById('chapterSearch').value.trim().toLowerCase();
@@ -739,7 +746,6 @@
       if (currentCategory && newIndex >= 0 && newIndex < currentCategory.chapters.length) {
         selectChapter(newIndex);
         
-        // 重新渲染清單以確保高亮正確
         const keyword = document.getElementById('chapterSearch').value.trim().toLowerCase();
         if (keyword) {
           filterChapters();
@@ -803,15 +809,20 @@
         const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
         const htmlContent = result.value;
 
-        let groupName = (currentSelectedGroup === 'ALL') ? '娛樂' : currentSelectedGroup;
+        let groupName = (currentSelectedGroup === 'ALL') ? '個人' : currentSelectedGroup;
         let seriesTitle = fullFileName;
         let chapterTitle = "全本內文";
 
+        const validGroups = ['個人', '工作', '情報', '成人'];
         const parts = fullFileName.split(/[_ -]+/);
-        if (parts.length >= 3 && ['工作','娛樂','建議','其他'].includes(parts[0].trim())) {
+        
+        if (parts.length >= 3 && validGroups.includes(parts[0].trim())) {
           groupName = parts[0].trim();
           seriesTitle = parts[1].trim();
           chapterTitle = parts.slice(2).join("_").trim();
+        } else if (parts.length >= 2 && validGroups.includes(parts[0].trim())) {
+          groupName = parts[0].trim();
+          seriesTitle = parts.slice(1).join("_").trim();
         } else if (parts.length >= 2) {
           seriesTitle = parts[0].trim();
           chapterTitle = parts.slice(1).join("_").trim();
