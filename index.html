@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>我的文章庫 (雲端同步版)</title>
+  <title>我的文章庫 (雲端同步三層結構版)</title>
   <!-- 引入 Mammoth.js 用於解析 Word (.docx) 檔案 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <!-- 引入 Supabase JS SDK -->
@@ -40,7 +40,7 @@
 
     /* 左側邊欄 */
     .sidebar {
-      width: 300px;
+      width: 320px;
       background-color: var(--bg-sidebar);
       border-right: 1px solid var(--border-color);
       display: flex;
@@ -97,18 +97,39 @@
       padding: 10px;
     }
 
-    /* 分類層級樣式 */
-    .category-group {
-      margin-bottom: 8px;
+    /* 三層式結構樣式 */
+    .category-section {
+      margin-bottom: 10px;
     }
 
-    .category-header {
-      padding: 10px 12px;
+    .category-title-bar {
+      padding: 8px 10px;
+      font-weight: bold;
+      font-size: 0.9rem;
+      color: var(--accent-color);
+      background: rgba(79, 195, 247, 0.08);
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .book-group {
+      margin-left: 10px;
+      margin-top: 4px;
+      border-left: 1px dashed var(--border-color);
+      padding-left: 8px;
+    }
+
+    .book-header {
+      padding: 8px 10px;
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.88rem;
       color: var(--text-main);
       cursor: pointer;
-      border-radius: 6px;
+      border-radius: 4px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -116,12 +137,12 @@
       transition: background 0.2s;
     }
 
-    .category-header:hover {
+    .book-header:hover {
       background-color: var(--hover-color);
     }
 
     .chapter-list {
-      padding-left: 14px;
+      padding-left: 12px;
       margin-top: 2px;
       display: block;
     }
@@ -131,16 +152,16 @@
     }
 
     .chapter-item {
-      padding: 8px 12px;
-      font-size: 0.88rem;
+      padding: 6px 10px;
+      font-size: 0.85rem;
       color: var(--text-muted);
       border-radius: 4px;
       cursor: pointer;
       margin-bottom: 2px;
       transition: all 0.2s;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .chapter-item:hover {
@@ -153,12 +174,6 @@
       color: var(--accent-color);
       font-weight: 600;
       border-left: 3px solid var(--accent-color);
-    }
-
-    .item-title {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     /* 右側主內容區 */
@@ -185,7 +200,6 @@
       gap: 15px;
     }
 
-    /* 上方章節下拉選單 */
     .chapter-select {
       background-color: var(--bg-card);
       color: var(--text-main);
@@ -306,7 +320,7 @@
       </label>
     </div>
     <div class="article-list" id="articleList">
-      <!-- 樹狀清單由 JS 動態生成 -->
+      <!-- 三層樹狀清單由 JS 動態生成 -->
     </div>
   </div>
 
@@ -315,7 +329,6 @@
     <div class="top-bar">
       <div class="top-bar-left">
         <div id="currentPath" style="font-size: 0.9rem; color: var(--text-muted);">尚未選擇文章</div>
-        <!-- 上方章節下拉選單 -->
         <select id="topChapterSelect" class="chapter-select" style="display: none;">
           <option value="">選擇章節...</option>
         </select>
@@ -340,17 +353,8 @@
     const SUPABASE_ANON_KEY = "sb_publishable_4fM-yRhN4FISf3UPtyMfUA_yX2F00ru";
 
     window.supabaseClient = window.supabaseClient || window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false
-      },
-      global: {
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-        }
-      }
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` } }
     });
     const dbClient = window.supabaseClient;
 
@@ -363,7 +367,7 @@
     let articlesData = [];
     let currentArticleId = null;
     let currentChapterIndex = 0;
-    let collapsedCategories = new Set();
+    let collapsedBooks = new Set(); // 記錄摺疊的書名
 
     const fileInput = document.getElementById('fileInput');
     const articleList = document.getElementById('articleList');
@@ -394,19 +398,30 @@
 
         articlesData = (data || []).map(art => {
           let parsedChapters = [];
-          
           if (Array.isArray(art.chapters) && art.chapters.length > 0) {
             parsedChapters = art.chapters;
           } else if (art.content) {
-            // 如果舊資料只有 content，自動依據內文標題進行簡易拆章節，或預設為全文
             parsedChapters = parseHtmlToChapters(art.content, art.title || "全文");
           } else {
             parsedChapters = [{ title: "全文", content: "無內容" }];
           }
 
+          // 自動解析檔名格式：分類_書名_章節範圍 (例如 娛樂_我的小草_11-20章)
+          const rawTitle = art.title || art.category_title || "未命名";
+          let category = "未分類";
+          let bookTitle = rawTitle;
+
+          if (rawTitle.includes("_")) {
+            const parts = rawTitle.split("_");
+            category = parts[0]; // 第一段為大分類 (如 娛樂)
+            bookTitle = parts.slice(1).join("_"); // 後續為書名與範圍
+          }
+
           return {
             id: art.id,
-            category_title: art.category_title || art.title || "未命名文章",
+            raw_title: rawTitle,
+            category: category,
+            book_title: bookTitle,
             is_private: art.is_private === true,
             created_at: art.created_at,
             chapters: parsedChapters
@@ -423,19 +438,16 @@
       }
     }
 
-    // 輔助函式：智慧解析 HTML 內文中的章節標題 (如 第1章、第1節等)
+    // 輔助函式：解析章節
     function parseHtmlToChapters(htmlContent, defaultTitle) {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = htmlContent;
-
-      // 尋找常見的章節標題標籤 (h1, h2, h3 或包含「第...章」的段落)
       const elements = Array.from(tempDiv.children);
       let chapters = [];
       let currentChap = { title: defaultTitle, content: "" };
 
       elements.forEach(el => {
         const text = el.textContent.trim();
-        // 判斷是否為章節標題（例如包含 "第...章" 或者是標題標籤）
         const isChapterHeading = /^第[一二三四五六七八九十百0-9]+章/.test(text) || /^Chapter\s*\d+/i.test(text);
 
         if (isChapterHeading && currentChap.content.trim() !== "") {
@@ -456,7 +468,7 @@
     }
 
     // -------------------------------------------------------------
-    // 4. 渲染左側目錄樹
+    // 4. 渲染左側「三層式」目錄樹
     // -------------------------------------------------------------
     function renderArticleList() {
       articleList.innerHTML = '';
@@ -467,54 +479,75 @@
         return;
       }
 
+      // 依照大分類 (category) 進行群組歸納
+      const groupedByCategory = {};
       visibleArticles.forEach(art => {
-        const categoryGroup = document.createElement('div');
-        categoryGroup.className = 'category-group';
+        if (!groupedByCategory[art.category]) {
+          groupedByCategory[art.category] = [];
+        }
+        groupedByCategory[art.category].push(art);
+      });
 
-        const isCollapsed = collapsedCategories.has(art.id);
+      // 產生三層選單 HTML
+      for (const [categoryName, books] of Object.entries(groupedByCategory)) {
+        const catSection = document.createElement('div');
+        catSection.className = 'category-section';
 
-        // 主分類（資料夾）標頭
-        const categoryHeader = document.createElement('div');
-        categoryHeader.className = 'category-header';
-        categoryHeader.innerHTML = `
-          <span class="item-title">📁 ${art.category_title} ${art.is_private ? '🔒' : ''}</span>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">${isCollapsed ? '▶' : '▼'}</span>
-        `;
+        // 第一層：大分類標題 (例如 📂 娛樂)
+        const catHeader = document.createElement('div');
+        catHeader.className = 'category-title-bar';
+        catHeader.innerHTML = `<span>📁 ${categoryName}</span>`;
+        catSection.appendChild(catHeader);
 
-        categoryHeader.addEventListener('click', () => {
-          if (collapsedCategories.has(art.id)) {
-            collapsedCategories.delete(art.id);
-          } else {
-            collapsedCategories.add(art.id);
-          }
-          renderArticleList();
-        });
+        // 該分類底下的所有書籍/檔案
+        books.forEach(art => {
+          const bookGroup = document.createElement('div');
+          bookGroup.className = 'book-group';
 
-        // 子章節列表
-        const chapterList = document.createElement('div');
-        chapterList.className = `chapter-list ${isCollapsed ? 'collapsed' : ''}`;
+          const isCollapsed = collapsedBooks.has(art.id);
 
-        art.chapters.forEach((chap, idx) => {
-          const chapterItem = document.createElement('div');
-          const isActive = art.id === currentArticleId && idx === currentChapterIndex;
-          chapterItem.className = `chapter-item ${isActive ? 'active' : ''}`;
-          
-          chapterItem.innerHTML = `
-            <span class="item-title">📄 ${chap.title || `第 ${idx + 1} 章`}</span>
+          // 第二層：書名標題 (例如 📘 我的小草_11-20章)
+          const bookHeader = document.createElement('div');
+          bookHeader.className = 'book-header';
+          bookHeader.innerHTML = `
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">📖 ${art.book_title} ${art.is_private ? '🔒' : ''}</span>
+            <span style="font-size: 0.7rem; color: var(--text-muted);">${isCollapsed ? '▶' : '▼'}</span>
           `;
 
-          chapterItem.addEventListener('click', (e) => {
-            e.stopPropagation();
-            selectChapter(art.id, idx);
+          bookHeader.addEventListener('click', () => {
+            if (collapsedBooks.has(art.id)) {
+              collapsedBooks.delete(art.id);
+            } else {
+              collapsedBooks.add(art.id);
+            }
+            renderArticleList();
           });
 
-          chapterList.appendChild(chapterItem);
+          // 第三層：章節清單 (第1章, 第2章...)
+          const chapterList = document.createElement('div');
+          chapterList.className = `chapter-list ${isCollapsed ? 'collapsed' : ''}`;
+
+          art.chapters.forEach((chap, idx) => {
+            const chapterItem = document.createElement('div');
+            const isActive = art.id === currentArticleId && idx === currentChapterIndex;
+            chapterItem.className = `chapter-item ${isActive ? 'active' : ''}`;
+            chapterItem.textContent = `📄 ${chap.title || `第 ${idx + 1} 章`}`;
+
+            chapterItem.addEventListener('click', (e) => {
+              e.stopPropagation();
+              selectChapter(art.id, idx);
+            });
+
+            chapterList.appendChild(chapterItem);
+          });
+
+          bookGroup.appendChild(bookHeader);
+          bookGroup.appendChild(chapterList);
+          catSection.appendChild(bookGroup);
         });
 
-        categoryGroup.appendChild(categoryHeader);
-        categoryGroup.appendChild(chapterList);
-        articleList.appendChild(categoryGroup);
-      });
+        articleList.appendChild(catSection);
+      }
     }
 
     // -------------------------------------------------------------
@@ -529,9 +562,9 @@
       renderArticleList();
 
       const chap = art.chapters[chapIdx];
-      currentPath.textContent = `${art.category_title} /`;
+      currentPath.textContent = `${art.category} / ${art.book_title} /`;
 
-      // 更新上方下拉選單內容
+      // 更新上方章節下拉選單
       topChapterSelect.innerHTML = '';
       art.chapters.forEach((c, i) => {
         const opt = document.createElement('option');
@@ -552,7 +585,7 @@
         <div class="article-header">
           <h1 class="article-title">${chap.title}</h1>
           <div class="article-meta">
-            <span>📚 分類：${art.category_title}</span>
+            <span>📚 分類：${art.category} ＞ ${art.book_title}</span>
             <span>📅 日期：${createdDate}</span>
             ${art.is_private ? '<span class="private-tag">🔒 私密</span>' : ''}
           </div>
@@ -563,7 +596,6 @@
       `;
     }
 
-    // 監聽上方下拉選單切換事件
     topChapterSelect.addEventListener('change', (e) => {
       const selectedIdx = parseInt(e.target.value);
       if (currentArticleId) {
@@ -572,18 +604,15 @@
     });
 
     // -------------------------------------------------------------
-    // 6. 解鎖私密區開關
+    // 6. 解鎖私密區
     // -------------------------------------------------------------
     lockToggleBtn.addEventListener('click', () => {
       if (isUnlocked) {
         isUnlocked = false;
         lockToggleBtn.textContent = "🔒 解鎖私密區";
         alert("已上鎖私密區！");
-        
         const currentArt = articlesData.find(a => a.id === currentArticleId);
-        if (currentArt && currentArt.is_private) {
-          resetReadArea();
-        }
+        if (currentArt && currentArt.is_private) resetReadArea();
         renderArticleList();
       } else {
         const inputPwd = prompt("🔑 請輸入私密區解鎖密碼：");
@@ -605,17 +634,11 @@
       if (!currentArticleId) return;
       const art = articlesData.find(a => a.id === currentArticleId);
       if (!art) return;
-
       const newPrivateStatus = !art.is_private;
 
       try {
-        const { error } = await dbClient
-          .from('articles')
-          .update({ is_private: newPrivateStatus })
-          .eq('id', currentArticleId);
-
+        const { error } = await dbClient.from('articles').update({ is_private: newPrivateStatus }).eq('id', currentArticleId);
         if (error) throw error;
-
         art.is_private = newPrivateStatus;
         selectChapter(currentArticleId, currentChapterIndex);
         renderArticleList();
@@ -626,7 +649,7 @@
     });
 
     // -------------------------------------------------------------
-    // 8. 匯入 Word (.docx) 檔案 (自動切分章節)
+    // 8. 匯入 Word (.docx) 檔案
     // -------------------------------------------------------------
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
@@ -639,9 +662,7 @@
         const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
         const htmlContent = result.value;
 
-        // 自動剖析章節
         const chaptersArray = parseHtmlToChapters(htmlContent, fileName);
-
         const customId = "cat_" + Date.now();
 
         const payload = {
@@ -654,15 +675,23 @@
         };
 
         statusBadge.textContent = "⏳ 上傳雲端中...";
-        const { error } = await dbClient
-          .from('articles')
-          .insert([payload]);
-
+        const { error } = await dbClient.from('articles').insert([payload]);
         if (error) throw error;
+
+        // 解析剛上傳的分類與書名
+        let category = "未分類";
+        let bookTitle = fileName;
+        if (fileName.includes("_")) {
+          const parts = fileName.split("_");
+          category = parts[0];
+          bookTitle = parts.slice(1).join("_");
+        }
 
         const addedArt = {
           id: customId,
-          category_title: fileName,
+          raw_title: fileName,
+          category: category,
+          book_title: bookTitle,
           is_private: false,
           created_at: new Date().toISOString(),
           chapters: chaptersArray
@@ -672,7 +701,6 @@
         renderArticleList();
         selectChapter(addedArt.id, 0);
         statusBadge.textContent = "☁️ 已連線雲端資料庫";
-
         fileInput.value = '';
       } catch (err) {
         console.error("匯入失敗:", err);
@@ -689,13 +717,8 @@
       if (!confirm("確定要刪除這篇文章嗎？")) return;
 
       try {
-        const { error } = await dbClient
-          .from('articles')
-          .delete()
-          .eq('id', currentArticleId);
-
+        const { error } = await dbClient.from('articles').delete().eq('id', currentArticleId);
         if (error) throw error;
-
         articlesData = articlesData.filter(a => a.id !== currentArticleId);
         resetReadArea();
         renderArticleList();
