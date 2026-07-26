@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的文章庫 (雲端同步版)</title>
+  <!-- 引入 Mammoth.js 用於解析 Word (.docx) 檔案 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <!-- 引入 Supabase JS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    /* 深色/黑灰系主題樣式 */
+    :root {
+      --bg-dark: #121212;
+      --bg-sidebar: #1e1e1e;
+      --bg-card: #252526;
+      --text-main: #e0e0e0;
+      --text-muted: #a0a0a0;
+      --accent-color: #4fc3f7;
+      --border-color: #333333;
+      --hover-color: #2a2d2e;
+      --danger-color: #ff5252;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* 頂部欄 */
+    header {
+      height: 50px;
+      background-color: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #ffffff;
+    }
+
+    .sync-status {
+      font-size: 0.8rem;
+      color: var(--accent-color);
+      font-weight: normal;
+    }
+
+    /* 主要容器 (左右分欄) */
+    .container {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 50px);
+    }
+
+    /* 左側選單 */
+    .sidebar {
+      width: 320px;
+      background-color: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* 分類下拉控制區塊 */
+    .category-filter-section {
+      padding: 12px 15px;
+      border-bottom: 1px solid var(--border-color);
+      background-color: #161616;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .category-filter-section label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .category-select {
+      flex: 1;
+      background-color: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 6px 10px;
+      border-radius: 4px;
+      outline: none;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .category-select:focus {
+      border-color: var(--accent-color);
+    }
+
+    /* 匯入 Word 按鈕區域 */
+    .import-section {
+      padding: 12px 15px;
+      border-bottom: 1px solid var(--border-color);
+      background-color: #1a1a1a;
+    }
+
+    .import-btn-label {
+      display: block;
+      width: 100%;
+      text-align: center;
+      background-color: #2d3748;
+      color: var(--accent-color);
+      border: 1px dashed var(--accent-color);
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .import-btn-label:hover {
+      background-color: var(--hover-color);
+      border-style: solid;
+    }
+
+    .sidebar-header {
+      padding: 15px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .back-btn {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    .back-btn:hover {
+      color: var(--text-main);
+      border-color: var(--text-main);
+    }
+
+    .menu-list {
+      list-style: none;
+    }
+
+    .menu-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.95rem;
+    }
+
+    .menu-item:hover {
+      background-color: var(--hover-color);
+      color: var(--accent-color);
+    }
+
+    .menu-item.active {
+      background-color: var(--hover-color);
+      border-left: 3px solid var(--accent-color);
+      color: var(--accent-color);
+    }
+
+    .item-title {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-right: 8px;
+    }
+
+    .tag-badge {
+      font-size: 0.75rem;
+      background-color: #333;
+      color: var(--accent-color);
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-right: 6px;
+    }
+
+    /* 刪除按鈕樣式 */
+    .delete-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      opacity: 0.6;
+      transition: all 0.2s;
+    }
+
+    .delete-btn:hover {
+      color: var(--danger-color);
+      opacity: 1;
+      background-color: rgba(255, 82, 82, 0.1);
+    }
+
+    /* 右側內文區 */
+    .content-area {
+      flex: 1;
+      padding: 40px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .article-card {
+      max-width: 800px;
+      margin: 0 auto;
+      width: 100%;
+      background-color: var(--bg-card);
+      padding: 35px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .article-title {
+      font-size: 1.8rem;
+      margin-bottom: 20px;
+      color: #ffffff;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 15px;
+    }
+
+    .article-body {
+      font-size: 1.05rem;
+      line-height: 1.8;
+      color: #d4d4d4;
+      white-space: pre-wrap;
+      flex: 1;
+    }
+
+    /* 頁碼導覽連結 */
+    .nav-links {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .nav-btn {
+      background-color: var(--bg-sidebar);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 10px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+
+    .nav-btn:hover:not(.disabled) {
+      background-color: var(--hover-color);
+      border-color: var(--accent-color);
+      color: var(--accent-color);
+    }
+
+    .nav-btn.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 上方欄 -->
+  <header>
+    <span>我的文章庫</span>
+    <span id="sync-status" class="sync-status">☁️ 雲端載入中...</span>
+  </header>
+
+  <!-- 主要分欄結構 -->
+  <div class="container">
+    
+    <!-- 左側欄：文章選單 -->
+    <div class="sidebar">
+      
+      <!-- 大分類下拉選單 -->
+      <div class="category-filter-section">
+        <label for="group-select">分類：</label>
+        <select id="group-select" class="category-select" onchange="onGroupChange()">
+          <option value="ALL">全部類別</option>
+          <option value="娛樂">娛樂</option>
+          <option value="工作">工作</option>
+          <option value="建議">建議</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+
+      <!-- 匯入 Word 檔案區塊 -->
+      <div class="import-section">
+        <label for="word-input" class="import-btn-label">📂 匯入 Word (.docx)</label>
+        <input type="file" id="word-input" accept=".docx" class="hidden" onchange="handleWordUpload(event)">
+      </div>
+
+      <div class="sidebar-header">
+        <span id="sidebar-title">文章系列</span>
+        <button id="back-btn" class="back-btn hidden" onclick="renderCategories()">← 返回系列</button>
+      </div>
+      <ul id="menu-list" class="menu-list"></ul>
+    </div>
+
+    <!-- 右側欄：內文顯示 -->
+    <div class="content-area" id="content-area">
+      <div class="article-card">
+        <h1 id="article-title" class="article-title">請選擇文章</h1>
+        <div id="article-body" class="article-body">請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。</div>
+        
+        <!-- 上下一章連結 -->
+        <div class="nav-links">
+          <button id="prev-btn" class="nav-btn disabled" onclick="navigateChapter(-1)">← 上一篇</button>
+          <button id="next-btn" class="nav-btn disabled" onclick="navigateChapter(1)">下一篇 →</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Supabase 雲端金鑰設定
+    const SUPABASE_URL = "https://ymeibcxmujfuoactfpot.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_4fM-yRhN4FISf3UPtyMfUA_yX2F00ru"; // 👈 請把這裏改成您複製的那長串 Publishable key
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let articlesData = [];
+    let currentCategory = null;
+    let currentChapterIndex = -1;
+
+    // 從 Supabase 雲端資料庫載入文章
+    async function loadDataFromCloud() {
+      document.getElementById('sync-status').innerText = "☁️ 雲端同步中...";
+      
+      const { data, error } = await supabaseClient
+        .from('articles')
+        .select('*');
+
+      if (error) {
+        console.error("載入失敗:", error);
+        document.getElementById('sync-status').innerText = "❌ 雲端連線失敗";
+        return;
+      }
+
+      articlesData = data.map(item => ({
+        id: item.id,
+        group: item.group,
+        categoryTitle: item.category_title,
+        chapters: item.chapters
+      }));
+
+      document.getElementById('sync-status').innerText = "☁️ 已連線雲端資料庫";
+      renderCategories();
+    }
+
+    function resetArticleDisplay() {
+      document.getElementById('article-title').innerText = "請選擇文章";
+      document.getElementById('article-body').innerText = "請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。";
+      document.getElementById('prev-btn').classList.add('disabled');
+      document.getElementById('next-btn').classList.add('disabled');
+    }
+
+    function onGroupChange() {
+      renderCategories();
+    }
+
+    // 第一層：顯示文章系列
+    function renderCategories() {
+      currentCategory = null;
+      currentChapterIndex = -1;
+      const menuList = document.getElementById('menu-list');
+      const sidebarTitle = document.getElementById('sidebar-title');
+      const backBtn = document.getElementById('back-btn');
+      const selectedGroup = document.getElementById('group-select').value;
+
+      sidebarTitle.innerText = "文章系列";
+      backBtn.classList.add('hidden');
+      menuList.innerHTML = '';
+
+      const filteredData = articlesData.filter(cat => {
+        if (selectedGroup === 'ALL') return true;
+        return (cat.group || '其他') === selectedGroup;
+      });
+
+      if (filteredData.length === 0) {
+        menuList.innerHTML = '<li style="padding:15px; color: var(--text-muted); font-size:0.85rem; text-align:center;">此分類下無文章</li>';
+        return;
+      }
+
+      filteredData.forEach((cat) => {
+        const originalIndex = articlesData.indexOf(cat);
+        const li = document.createElement('li');
+        li.className = 'menu-item';
+        
+        li.innerHTML = `
+          <div style="display:flex; align-items:center; overflow:hidden;">
+            ${selectedGroup === 'ALL' ? `<span class="tag-badge">${cat.group || '其他'}</span>` : ''}
+            <span class="item-title">${cat.categoryTitle}</span>
+          </div>
+          <div>
+            <button class="delete-btn" title="刪除整個系列" onclick="deleteCategory(event, ${originalIndex})">🗑️</button>
+            <span style="margin-left: 5px; color: var(--text-muted);">›</span>
+          </div>
+        `;
+        li.onclick = (e) => {
+          if (!e.target.classList.contains('delete-btn')) {
+            renderChapters(cat);
+          }
+        };
+        menuList.appendChild(li);
+      });
+    }
+
+    // 刪除整個系列
+    async function deleteCategory(event, catIndex) {
+      event.stopPropagation();
+      const cat = articlesData[catIndex];
+      if (confirm(`確定要刪除整個【${cat.categoryTitle}】系列及其所有篇章嗎？`)) {
+        document.getElementById('sync-status').innerText = "⏳ 刪除中...";
+        
+        const { error } = await supabaseClient
+          .from('articles')
+          .delete()
+          .eq('id', cat.id);
+
+        if (!error) {
+          articlesData.splice(catIndex, 1);
+          renderCategories();
+          resetArticleDisplay();
+          document.getElementById('sync-status').innerText = "☁️ 已連線雲端資料庫";
+        } else {
+          alert("刪除失敗：" + error.message);
+        }
+      }
+    }
+
+    // 第二層：顯示篇章
+    function renderChapters(category) {
+      currentCategory = category;
+      const menuList = document.getElementById('menu-list');
+      const sidebarTitle = document.getElementById('sidebar-title');
+      const backBtn = document.getElementById('back-btn');
+
+      sidebarTitle.innerText = category.categoryTitle;
+      backBtn.classList.remove('hidden');
+      menuList.innerHTML = '';
+
+      category.chapters.forEach((chap, idx) => {
+        const li = document.createElement('li');
+        li.className = 'menu-item';
+        
+        if (idx === currentChapterIndex) {
+          li.classList.add('active');
+        }
+
+        li.innerHTML = `
+          <span class="item-title">${chap.title}</span>
+          <button class="delete-btn" title="刪除此篇章" onclick="deleteChapter(event, ${idx})">🗑️</button>
+        `;
+
+        li.onclick = (e) => {
+          if (!e.target.classList.contains('delete-btn')) {
+            selectChapter(idx);
+            document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+            li.classList.add('active');
+          }
+        };
+        menuList.appendChild(li);
+      });
+    }
+
+    // 刪除單一篇章
+    async function deleteChapter(event, chapIndex) {
+      event.stopPropagation();
+      const chap = currentCategory.chapters[chapIndex];
+      if (confirm(`確定要刪除篇章【${chap.title}】嗎？`)) {
+        currentCategory.chapters.splice(chapIndex, 1);
+
+        document.getElementById('sync-status').innerText = "⏳ 儲存中...";
+        const { error } = await supabaseClient
+          .from('articles')
+          .update({ chapters: currentCategory.chapters })
+          .eq('id', currentCategory.id);
+
+        if (!error) {
+          if (chapIndex === currentChapterIndex) {
+            resetArticleDisplay();
+            currentChapterIndex = -1;
+          } else if (chapIndex < currentChapterIndex) {
+            currentChapterIndex--;
+          }
+          renderChapters(currentCategory);
+          document.getElementById('sync-status').innerText = "☁️ 已連線雲端資料庫";
+        } else {
+          alert("刪除失敗：" + error.message);
+        }
+      }
+    }
+
+    function selectChapter(index) {
+      if (!currentCategory || index < 0 || index >= currentCategory.chapters.length) return;
+      
+      currentChapterIndex = index;
+      const chapter = currentCategory.chapters[index];
+
+      document.getElementById('article-title').innerText = chapter.title;
+      document.getElementById('article-body').innerText = chapter.content;
+      document.getElementById('content-area').scrollTop = 0;
+
+      const prevBtn = document.getElementById('prev-btn');
+      const nextBtn = document.getElementById('next-btn');
+
+      prevBtn.classList.toggle('disabled', index <= 0);
+      nextBtn.classList.toggle('disabled', index >= currentCategory.chapters.length - 1);
+    }
+
+    function navigateChapter(direction) {
+      const newIndex = currentChapterIndex + direction;
+      if (currentCategory && newIndex >= 0 && newIndex < currentCategory.chapters.length) {
+        selectChapter(newIndex);
+        
+        const menuItems = document.querySelectorAll('.menu-item');
+        menuItems.forEach((el, idx) => {
+          el.classList.toggle('active', idx === newIndex);
+        });
+      }
+    }
+
+    // 解析 Word 並同步上傳雲端
+    function handleWordUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const fullFileName = file.name.replace(/\.[^/.]+$/, "").trim();
+      const currentSelectedGroup = document.getElementById('group-select').value;
+
+      const reader = new FileReader();
+      reader.onload = function(loadEvent) {
+        const arrayBuffer = loadEvent.target.result;
+        
+        mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+          .then(async function(result) {
+            const textContent = result.value;
+            
+            let groupName = (currentSelectedGroup === 'ALL') ? '娛樂' : currentSelectedGroup;
+            let seriesTitle = "";
+            let chapterTitle = "";
+
+            const parts = fullFileName.split(/[_ -]+/);
+
+            if (parts.length >= 3 && ['工作','娛樂','建議','其他'].includes(parts[0].trim())) {
+              groupName = parts[0].trim();
+              seriesTitle = parts[1].trim();
+              chapterTitle = parts.slice(2).join("_").trim();
+            } else if (parts.length >= 2) {
+              seriesTitle = parts[0].trim();
+              chapterTitle = parts.slice(1).join("_").trim();
+            } else {
+              seriesTitle = fullFileName;
+              chapterTitle = "全本內文";
+            }
+
+            document.getElementById('sync-status').innerText = "⏳ 上傳雲端中...";
+
+            let targetCategory = articlesData.find(cat => cat.categoryTitle === seriesTitle);
+
+            if (!targetCategory) {
+              targetCategory = {
+                id: "cat_" + Date.now(),
+                group: groupName,
+                categoryTitle: seriesTitle,
+                chapters: [{ title: chapterTitle, content: textContent }]
+              };
+
+              const { error } = await supabaseClient
+                .from('articles')
+                .insert({
+                  id: targetCategory.id,
+                  group: targetCategory.group,
+                  category_title: targetCategory.categoryTitle,
+                  chapters: targetCategory.chapters
+                });
+
+              if (error) {
+                alert("上傳雲端失敗：" + error.message);
+                return;
+              }
+
+              articlesData.push(targetCategory);
+            } else {
+              targetCategory.group = groupName;
+              const existingChapIndex = targetCategory.chapters.findIndex(c => c.title === chapterTitle);
+              if (existingChapIndex !== -1) {
+                targetCategory.chapters[existingChapIndex].content = textContent;
+              } else {
+                targetCategory.chapters.push({ title: chapterTitle, content: textContent });
+              }
+
+              const { error } = await supabaseClient
+                .from('articles')
+                .update({
+                  group: targetCategory.group,
+                  chapters: targetCategory.chapters
+                })
+                .eq('id', targetCategory.id);
+
+              if (error) {
+                alert("更新雲端失敗：" + error.message);
+                return;
+              }
+            }
+
+            document.getElementById('sync-status').innerText = "☁️ 已連線雲端資料庫";
+            renderCategories();
+            
+            alert(`成功上傳雲端！\n大分類：【${groupName}】\n系列：【${seriesTitle}】\n篇章：${chapterTitle}`);
+            event.target.value = '';
+          })
+          .catch(function(err) {
+            console.error(err);
+            alert("讀取 Word 檔案失敗，請確保檔案格式為 .docx");
+          });
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    // 初始化：自動連線雲端抓取資料
+    loadDataFromCloud();
+  </script>
+</body>
+</html>
