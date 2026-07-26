@@ -52,6 +52,7 @@
       font-size: 1.1rem;
       font-weight: bold;
       color: #ffffff;
+      flex-shrink: 0;
     }
 
     .header-right {
@@ -86,6 +87,8 @@
       display: flex;
       flex: 1;
       height: calc(100vh - 50px);
+      position: relative;
+      overflow: hidden;
     }
 
     /* 左側選單 */
@@ -97,6 +100,7 @@
       flex-direction: column;
       overflow-y: auto;
       flex-shrink: 0;
+      transition: transform 0.3s ease;
     }
 
     /* 分類下拉控制區塊 */
@@ -283,6 +287,23 @@
       overflow-y: auto;
       display: flex;
       flex-direction: column;
+      background-color: var(--bg-dark);
+    }
+
+    /* 手機版專屬的返回目錄按鈕（預設隱藏） */
+    .mobile-back-list-btn {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-sidebar);
+      color: var(--accent-color);
+      border: 1px solid var(--border-color);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      margin-bottom: 20px;
+      width: fit-content;
     }
 
     .article-card {
@@ -378,6 +399,60 @@
     .hidden {
       display: none !important;
     }
+
+    /* RWD 手機響應式適配 (螢幕寬度小於 768px 時) */
+    @media (max-width: 768px) {
+      .container {
+        position: relative;
+      }
+      
+      /* 手機預設全螢幕顯示左側選單 */
+      .sidebar {
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 2;
+      }
+
+      /* 當點擊文章進入閱讀時，隱藏選單 */
+      .sidebar.mobile-hidden {
+        transform: translateX(-100%);
+      }
+
+      /* 右側內文區預設鋪滿但層級在後方，點擊後滑入顯示 */
+      .content-area {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        padding: 15px;
+        z-index: 1;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+      }
+
+      .content-area.mobile-active {
+        opacity: 1;
+        pointer-events: auto;
+        z-index: 3;
+      }
+
+      .mobile-back-list-btn {
+        display: inline-flex;
+      }
+
+      .article-card {
+        padding: 20px;
+      }
+
+      .article-title {
+        font-size: 1.3rem;
+      }
+    }
   </style>
 </head>
 <body>
@@ -386,18 +461,18 @@
   <header>
     <span>我的文章庫</span>
     <div class="header-right">
-      <span id="statusBadge" class="status-badge">🔄 連線資料庫中...</span>
+      <span id="statusBadge" class="status-badge">🔄 連線中...</span>
       <button id="lockToggleBtn" class="lock-toggle-btn" onclick="toggleSecretArea()">🔒 解鎖私密區</button>
     </div>
   </header>
 
   <!-- 主要分欄結構 -->
-  <div class="container">
+  <div class="container" id="mainContainer">
     
     <!-- 左側欄：文章選單 -->
-    <div class="sidebar">
+    <div class="sidebar" id="sidebarPanel">
       
-      <!-- 大分類下拉選單 (已更新為：個人、工作、情報、成人) -->
+      <!-- 大分類下拉選單 -->
       <div id="group-filter-section" class="category-filter-section">
         <label for="group-select">分類：</label>
         <select id="group-select" class="category-select" onchange="onGroupChange()">
@@ -415,7 +490,7 @@
         <input type="file" id="word-input" accept=".docx" class="hidden" onchange="handleWordUpload(event)">
       </div>
 
-      <!-- 章節專屬工具列 (點進系列後才會顯示) -->
+      <!-- 章節專屬工具列 -->
       <div id="chapter-tools" class="chapter-tools hidden">
         <input type="text" id="chapterSearch" class="chapter-search-input" placeholder="🔍 快速搜尋章節名稱..." oninput="filterChapters()">
       </div>
@@ -429,6 +504,9 @@
 
     <!-- 右側欄：內文顯示 -->
     <div class="content-area" id="content-area">
+      <!-- 手機專屬返回目錄按鈕 -->
+      <button class="mobile-back-list-btn" onclick="backToMobileSidebar()">← 返回文章列表</button>
+
       <div class="article-card">
         <div class="article-header-row">
           <h1 id="article-title" class="article-title">請選擇文章</h1>
@@ -509,7 +587,6 @@
             seriesTitle = parts[0].trim();
           }
 
-          // 確保分類如果不在指定清單內，歸類到「個人」
           if (!validGroups.includes(groupName)) {
             groupName = "個人";
           }
@@ -701,9 +778,21 @@
           selectChapter(realIndex);
           document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
           li.classList.add('active');
+
+          // 手機版點擊章節後，自動切換顯示右側內文區
+          if (window.innerWidth <= 768) {
+            document.getElementById('sidebarPanel').classList.add('mobile-hidden');
+            document.getElementById('content-area').classList.add('mobile-active');
+          }
         };
         menuList.appendChild(li);
       });
+    }
+
+    /* 手機版返回文章列表 */
+    function backToMobileSidebar() {
+      document.getElementById('sidebarPanel').classList.remove('mobile-hidden');
+      document.getElementById('content-area').classList.remove('mobile-active');
     }
 
     function filterChapters() {
