@@ -1,0 +1,568 @@
+	<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的文章庫 (雲端同步版)</title>
+  <!-- 引入 Mammoth.js 用於解析 Word (.docx) 檔案 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <!-- 引入 Supabase JS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    /* 深色/黑灰系主題樣式 */
+    :root {
+      --bg-dark: #121212;
+      --bg-sidebar: #1e1e1e;
+      --bg-card: #252526;
+      --text-main: #e0e0e0;
+      --text-muted: #a0a0a0;
+      --accent-color: #4fc3f7;
+      --border-color: #333333;
+      --hover-color: #2a2d2e;
+      --danger-color: #ff5252;
+      --lock-color: #ffd54f;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* 左側邊欄 */
+    .sidebar {
+      width: 280px;
+      background-color: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sidebar-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 15px;
+    }
+
+    .status-badge {
+      font-size: 0.8rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: inline-block;
+    }
+
+    .file-upload-btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      background-color: var(--accent-color);
+      color: #121212;
+      font-weight: 600;
+      text-align: center;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .file-upload-btn:hover {
+      opacity: 0.9;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .article-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+
+    .article-item {
+      padding: 12px 15px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 6px;
+      transition: background 0.2s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .article-item:hover {
+      background-color: var(--hover-color);
+    }
+
+    .article-item.active {
+      background-color: var(--hover-color);
+      border-left: 3px solid var(--accent-color);
+    }
+
+    .article-item-title {
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* 右側主內容區 */
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background-color: var(--bg-dark);
+      overflow: hidden;
+    }
+
+    .top-bar {
+      padding: 15px 30px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--bg-sidebar);
+    }
+
+    .top-bar-right {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-main);
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--hover-color);
+    }
+
+    .btn-danger {
+      color: var(--danger-color);
+      border-color: rgba(255, 82, 82, 0.3);
+    }
+
+    .btn-danger:hover {
+      background: rgba(255, 82, 82, 0.1);
+    }
+
+    .btn-lock {
+      color: var(--lock-color);
+      border-color: rgba(255, 213, 79, 0.3);
+    }
+
+    .btn-lock:hover {
+      background: rgba(255, 213, 79, 0.1);
+    }
+
+    .article-container {
+      flex: 1;
+      padding: 40px;
+      overflow-y: auto;
+      max-width: 900px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .article-header {
+      margin-bottom: 30px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 20px;
+    }
+
+    .article-title {
+      font-size: 1.8rem;
+      margin-bottom: 10px;
+      color: #ffffff;
+    }
+
+    .article-meta {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 15px;
+      align-items: center;
+    }
+
+    .private-tag {
+      background-color: rgba(255, 213, 79, 0.2);
+      color: var(--lock-color);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+    }
+
+    .article-body {
+      line-height: 1.8;
+      font-size: 1.05rem;
+      color: var(--text-main);
+    }
+
+    .article-body p {
+      margin-bottom: 1.2rem;
+    }
+
+    .empty-state {
+      display: flex;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 左側邊欄 -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">📚 我的文章庫</div>
+      <div id="statusBadge" class="status-badge">🔄 連線資料庫中...</div>
+      <label class="file-upload-btn">
+        📂 匯入 Word (.docx)
+        <input type="file" id="fileInput" class="file-input" accept=".docx">
+      </label>
+    </div>
+    <div class="article-list" id="articleList">
+      <!-- 文章列表將由 JS 動態生成 -->
+    </div>
+  </div>
+
+  <!-- 右側文章閱讀區 -->
+  <div class="main-content">
+    <div class="top-bar">
+      <div id="currentPath" style="font-size: 0.9rem; color: var(--text-muted);">尚未選擇文章</div>
+      <div class="top-bar-right">
+        <button id="lockToggleBtn" class="btn btn-lock">🔒 解鎖私密區</button>
+        <button id="togglePrivateBtn" class="btn" style="display: none;">🔒 設為私密文章</button>
+        <button id="deleteBtn" class="btn btn-danger" style="display: none;">🗑️ 刪除文章</button>
+      </div>
+    </div>
+
+    <div id="articleContainer" class="article-container">
+      <div class="empty-state">請從左側選擇文章閱讀，或點擊匯入 Word 檔案。</div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------
+    // 1. Supabase 設定
+    // -------------------------------------------------------------
+    const SUPABASE_URL = "https://ymeibcxmujfuoactfpot.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_4fM-yRhN4FISf3UPtyMfUA_yX2F00ru"; // 已填入您的 Key
+
+    // 初始化 Client (相容 Supabase 新版可發布密鑰格式)
+    window.supabaseClient = window.supabaseClient || window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      },
+      global: {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      }
+    });
+    const dbClient = window.supabaseClient;
+
+    // -------------------------------------------------------------
+    // 2. 密碼與狀態設定
+    // -------------------------------------------------------------
+    let SECRET_PASSWORD = "320137"; // 已設定為您的新密碼
+    let isUnlocked = false;
+
+    let articles = [];
+    let currentArticleId = null;
+
+    // DOM 元素
+    const fileInput = document.getElementById('fileInput');
+    const articleList = document.getElementById('articleList');
+    const articleContainer = document.getElementById('articleContainer');
+    const statusBadge = document.getElementById('statusBadge');
+    const deleteBtn = document.getElementById('deleteBtn');
+    const togglePrivateBtn = document.getElementById('togglePrivateBtn');
+    const lockToggleBtn = document.getElementById('lockToggleBtn');
+    const currentPath = document.getElementById('currentPath');
+
+    // -------------------------------------------------------------
+    // 3. 初始化與雲端載入
+    // -------------------------------------------------------------
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchArticlesFromSupabase();
+    });
+
+    async function fetchArticlesFromSupabase() {
+      try {
+        statusBadge.textContent = "🔄 連線中...";
+        const { data, error } = await dbClient
+          .from('articles')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // 兼容處理舊資料與新資料格式
+        articles = (data || []).map(art => ({
+          ...art,
+          title: art.title || art.category_title || "無標題文章",
+          content: art.content || (art.chapters ? parseChapters(art.chapters) : "無內容"),
+          is_private: art.is_private === true
+        }));
+
+        statusBadge.textContent = "☁️ 已連線雲端資料庫";
+        statusBadge.style.color = "#81c784";
+        renderArticleList();
+      } catch (err) {
+        console.error("載入失敗:", err);
+        statusBadge.textContent = "⚠️ 資料庫連線失敗";
+        statusBadge.style.color = "#e57373";
+      }
+    }
+
+    function parseChapters(chapters) {
+      if (typeof chapters === 'string') return chapters;
+      if (Array.isArray(chapters)) {
+        return chapters.map(c => `<p>${c.content || c.title || ''}</p>`).join('');
+      }
+      return JSON.stringify(chapters);
+    }
+
+    // -------------------------------------------------------------
+    // 4. 渲染文章列表
+    // -------------------------------------------------------------
+    function renderArticleList() {
+      articleList.innerHTML = '';
+      const visibleArticles = articles.filter(art => isUnlocked || !art.is_private);
+
+      if (visibleArticles.length === 0) {
+        articleList.innerHTML = '<div style="padding: 15px; color: var(--text-muted); font-size: 0.85rem;">目前沒有可顯示的文章</div>';
+        return;
+      }
+
+      visibleArticles.forEach(art => {
+        const item = document.createElement('div');
+        item.className = `article-item ${art.id === currentArticleId ? 'active' : ''}`;
+        
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'article-item-title';
+        titleSpan.textContent = art.title;
+
+        item.appendChild(titleSpan);
+
+        if (art.is_private) {
+          const lockIcon = document.createElement('span');
+          lockIcon.textContent = ' 🔒';
+          item.appendChild(lockIcon);
+        }
+
+        item.addEventListener('click', () => selectArticle(art.id));
+        articleList.appendChild(item);
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 5. 選擇文章
+    // -------------------------------------------------------------
+    function selectArticle(id) {
+      const art = articles.find(a => a.id === id);
+      if (!art) return;
+
+      currentArticleId = id;
+      renderArticleList();
+
+      currentPath.textContent = `文章 / ${art.title}`;
+      deleteBtn.style.display = 'inline-block';
+      togglePrivateBtn.style.display = 'inline-block';
+      togglePrivateBtn.textContent = art.is_private ? "🔓 取消私密標記" : "🔒 設為私密文章";
+
+      const createdDate = art.created_at ? new Date(art.created_at).toLocaleDateString('zh-TW') : "未知日期";
+
+      articleContainer.innerHTML = `
+        <div class="article-header">
+          <h1 class="article-title">${art.title}</h1>
+          <div class="article-meta">
+            <span>📅 匯入日期：${createdDate}</span>
+            ${art.is_private ? '<span class="private-tag">🔒 私密文章</span>' : ''}
+          </div>
+        </div>
+        <div class="article-body">
+          ${art.content}
+        </div>
+      `;
+    }
+
+    // -------------------------------------------------------------
+    // 6. 私密區開關
+    // -------------------------------------------------------------
+    lockToggleBtn.addEventListener('click', () => {
+      if (isUnlocked) {
+        isUnlocked = false;
+        lockToggleBtn.textContent = "🔒 解鎖私密區";
+        alert("已重新上鎖私密區！");
+        
+        const currentArt = articles.find(a => a.id === currentArticleId);
+        if (currentArt && currentArt.is_private) {
+          resetReadArea();
+        }
+        renderArticleList();
+      } else {
+        const inputPwd = prompt("🔑 請輸入私密區解鎖密碼：");
+        if (inputPwd === SECRET_PASSWORD) {
+          isUnlocked = true;
+          lockToggleBtn.textContent = "🔓 上鎖私密區";
+          alert("解鎖成功！私密文章已顯示。");
+          renderArticleList();
+        } else if (inputPwd !== null) {
+          alert("❌ 密碼錯誤！");
+        }
+      }
+    });
+
+    // -------------------------------------------------------------
+    // 7. 切換單篇私密狀態
+    // -------------------------------------------------------------
+    togglePrivateBtn.addEventListener('click', async () => {
+      if (!currentArticleId) return;
+      const art = articles.find(a => a.id === currentArticleId);
+      if (!art) return;
+
+      const newPrivateStatus = !art.is_private;
+
+      try {
+        const { error } = await dbClient
+          .from('articles')
+          .update({ is_private: newPrivateStatus })
+          .eq('id', currentArticleId);
+
+        if (error) throw error;
+
+        art.is_private = newPrivateStatus;
+        selectArticle(currentArticleId);
+        renderArticleList();
+      } catch (err) {
+        console.error("狀態更新失敗:", err);
+        alert("修改私密狀態失敗。");
+      }
+    });
+
+    // -------------------------------------------------------------
+    // 8. 匯入 Word (.docx)
+    // -------------------------------------------------------------
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const fileName = file.name.replace(/\.[^/.]+$/, "");
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+        const htmlContent = result.value;
+
+        const customId = "cat_" + Date.now();
+
+        const payload = {
+          id: customId,
+          title: fileName,
+          content: htmlContent,
+          category_title: fileName,
+          is_private: false
+        };
+
+        statusBadge.textContent = "⏳ 上傳雲端中...";
+        const { data, error } = await dbClient
+          .from('articles')
+          .insert([payload])
+          .select();
+
+        if (error) {
+          console.error("Supabase 寫入錯誤:", error);
+          throw error;
+        }
+
+        const addedArt = {
+          id: customId,
+          title: fileName,
+          content: htmlContent,
+          is_private: false,
+          created_at: new Date().toISOString()
+        };
+
+        articles.unshift(addedArt);
+        renderArticleList();
+        selectArticle(addedArt.id);
+        statusBadge.textContent = "☁️ 已連線雲端資料庫";
+
+        fileInput.value = '';
+      } catch (err) {
+        console.error("匯入失敗:", err);
+        alert("匯入失敗，請確認 Supabase 設定是否正確。");
+        statusBadge.textContent = "☁️ 已連線雲端資料庫";
+      }
+    });
+
+    // -------------------------------------------------------------
+    // 9. 刪除文章
+    // -------------------------------------------------------------
+    deleteBtn.addEventListener('click', async () => {
+      if (!currentArticleId) return;
+      
+      if (!confirm("確定要刪除這篇文章嗎？此動作無法復原。")) return;
+
+      try {
+        const { error } = await dbClient
+          .from('articles')
+          .delete()
+          .eq('id', currentArticleId);
+
+        if (error) throw error;
+
+        articles = articles.filter(a => a.id !== currentArticleId);
+        resetReadArea();
+        renderArticleList();
+      } catch (err) {
+        console.error("刪除失敗:", err);
+        alert("刪除失敗，請再試一次。");
+      }
+    });
+
+    function resetReadArea() {
+      currentArticleId = null;
+      currentPath.textContent = "尚未選擇文章";
+      deleteBtn.style.display = 'none';
+      togglePrivateBtn.style.display = 'none';
+      articleContainer.innerHTML = '<div class="empty-state">請從左側選擇文章閱讀，或點擊匯入 Word 檔案。</div>';
+    }
+  </script>
+</body>
+</html>
