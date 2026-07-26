@@ -157,8 +157,32 @@
       border-style: solid;
     }
 
+    /* 章節額外工具列（搜尋與分段） */
+    .chapter-tools {
+      padding: 10px 15px;
+      background-color: #181818;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .chapter-search-input {
+      width: 100%;
+      background-color: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 6px 10px;
+      border-radius: 4px;
+      outline: none;
+      font-size: 0.85rem;
+    }
+    .chapter-search-input:focus {
+      border-color: var(--accent-color);
+    }
+
     .sidebar-header {
-      padding: 15px;
+      padding: 12px 15px;
       border-bottom: 1px solid var(--border-color);
       display: flex;
       justify-content: space-between;
@@ -234,7 +258,6 @@
       margin-right: 6px;
     }
 
-    /* 刪除按鈕樣式 */
     .delete-btn {
       background: none;
       border: none;
@@ -321,7 +344,6 @@
       margin-bottom: 1.2rem;
     }
 
-    /* 頁碼導覽連結 */
     .nav-links {
       display: flex;
       justify-content: space-between;
@@ -376,7 +398,7 @@
     <div class="sidebar">
       
       <!-- 大分類下拉選單 -->
-      <div class="category-filter-section">
+      <div id="group-filter-section" class="category-filter-section">
         <label for="group-select">分類：</label>
         <select id="group-select" class="category-select" onchange="onGroupChange()">
           <option value="ALL">全部類別</option>
@@ -388,9 +410,14 @@
       </div>
 
       <!-- 匯入 Word 檔案區塊 -->
-      <div class="import-section">
+      <div id="import-section" class="import-section">
         <label for="word-input" class="import-btn-label">📂 匯入 Word (.docx)</label>
         <input type="file" id="word-input" accept=".docx" class="hidden" onchange="handleWordUpload(event)">
+      </div>
+
+      <!-- 章節專屬工具列 (點進系列後才會顯示) -->
+      <div id="chapter-tools" class="chapter-tools hidden">
+        <input type="text" id="chapterSearch" class="chapter-search-input" placeholder="🔍 快速搜尋章節名稱..." oninput="filterChapters()">
       </div>
 
       <div class="sidebar-header">
@@ -422,9 +449,6 @@
   </div>
 
   <script>
-    // -------------------------------------------------------------
-    // 1. Supabase 設定
-    // -------------------------------------------------------------
     const SUPABASE_URL = "https://ymeibcxmujfuoactfpot.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_4fM-yRhN4FISf3UPtyMfUA_yX2F00ru";
 
@@ -433,20 +457,16 @@
       global: { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` } }
     });
 
-    // -------------------------------------------------------------
-    // 2. 狀態與密碼設定
-    // -------------------------------------------------------------
     const SECRET_PASSWORD = "320137";
     let isUnlocked = false;
 
-    let articlesData = []; // 雲端載入合併後的資料結構
+    let articlesData = []; 
     let currentCategory = null;
     let currentChapterIndex = -1;
 
     const statusBadge = document.getElementById('statusBadge');
     const lockToggleBtn = document.getElementById('lockToggleBtn');
 
-    // 頁面載入時從 Supabase 抓取資料
     window.addEventListener('DOMContentLoaded', () => {
       fetchArticlesFromSupabase();
     });
@@ -461,9 +481,7 @@
 
         if (error) throw error;
 
-        // 智慧合併：將相同分類且相同系列名稱的文章合併成同一個系列
         const map = {};
-
         (data || []).forEach(art => {
           let parsedChapters = [];
           if (Array.isArray(art.chapters) && art.chapters.length > 0) {
@@ -486,13 +504,12 @@
             seriesTitle = parts[0].trim();
           }
 
-          // 建立唯一 key 用來判斷是否為同系列 (分類 + 系列名稱)
           const mapKey = `${groupName}_${seriesTitle}`;
 
           if (!map[mapKey]) {
             map[mapKey] = {
-              id: art.id, // 保留第一筆的 id 作為代表
-              sourceIds: [art.id], // 記錄所有被合併的原始 id，以便刪除時一起清理
+              id: art.id,
+              sourceIds: [art.id],
               group: groupName,
               categoryTitle: seriesTitle,
               rawTitle: rawTitle,
@@ -502,13 +519,11 @@
             };
           } else {
             map[mapKey].sourceIds.push(art.id);
-            // 把後續上傳的章節追加合併進去
             map[mapKey].chapters.push(...parsedChapters);
           }
         });
 
         articlesData = Object.values(map);
-
         statusBadge.textContent = "☁️ 已連線雲端";
         statusBadge.style.color = "#81c784";
         renderCategories();
@@ -519,7 +534,6 @@
       }
     }
 
-    // 輔助函式：自動將 HTML 內容依「章/篇」標題拆分
     function parseHtmlToChapters(htmlContent, defaultTitle) {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = htmlContent;
@@ -560,14 +574,21 @@
       renderCategories();
     }
 
-    // 第一層：顯示所有文章系列
     function renderCategories() {
       currentCategory = null;
       currentChapterIndex = -1;
       const menuList = document.getElementById('menu-list');
       const sidebarTitle = document.getElementById('sidebar-title');
       const backBtn = document.getElementById('back-btn');
+      const groupFilterSection = document.getElementById('group-filter-section');
+      const importSection = document.getElementById('import-section');
+      const chapterTools = document.getElementById('chapter-tools');
       const selectedGroup = document.getElementById('group-select').value;
+
+      groupFilterSection.classList.remove('hidden');
+      importSection.classList.remove('hidden');
+      chapterTools.classList.add('hidden');
+      document.getElementById('chapterSearch').value = '';
 
       sidebarTitle.innerText = "文章系列";
       backBtn.classList.add('hidden');
@@ -609,17 +630,14 @@
       });
     }
 
-    // 刪除整個系列 (會將該系列對應的所有雲端原始檔案一併刪除)
     async function deleteCategory(event, catIndex) {
       event.stopPropagation();
       const cat = articlesData[catIndex];
       if (confirm(`確定要刪除整個【${cat.categoryTitle}】系列及其所有篇章嗎？`)) {
         try {
-          // 將該系列包含的所有原始資料 id 全部從 Supabase 刪除
           for (const id of cat.sourceIds) {
             await dbClient.from('articles').delete().eq('id', id);
           }
-
           articlesData.splice(catIndex, 1);
           renderCategories();
           resetArticleDisplay();
@@ -630,36 +648,68 @@
       }
     }
 
-    // 第二層：點擊系列後，列出該系列下的所有篇章
     function renderChapters(category) {
       currentCategory = category;
       const menuList = document.getElementById('menu-list');
       const sidebarTitle = document.getElementById('sidebar-title');
       const backBtn = document.getElementById('back-btn');
+      const groupFilterSection = document.getElementById('group-filter-section');
+      const importSection = document.getElementById('import-section');
+      const chapterTools = document.getElementById('chapter-tools');
+
+      // 進入章節層級時，隱藏大分類與匯入按鈕，顯示章節搜尋工具列
+      groupFilterSection.classList.add('hidden');
+      importSection.classList.add('hidden');
+      chapterTools.classList.remove('hidden');
 
       sidebarTitle.innerText = category.categoryTitle;
       backBtn.classList.remove('hidden');
+      
+      populateChapterList(category.chapters);
+    }
+
+    function populateChapterList(chaptersToDisplay) {
+      const menuList = document.getElementById('menu-list');
       menuList.innerHTML = '';
 
-      category.chapters.forEach((chap, idx) => {
+      if (chaptersToDisplay.length === 0) {
+        menuList.innerHTML = '<li style="padding:15px; color: var(--text-muted); font-size:0.85rem; text-align:center;">找不到符合的章節</li>';
+        return;
+      }
+
+      chaptersToDisplay.forEach((chap) => {
+        // 找出原本在總陣列中的真實索引
+        const realIndex = currentCategory.chapters.indexOf(chap);
         const li = document.createElement('li');
         li.className = 'menu-item';
         
-        if (idx === currentChapterIndex) {
+        if (realIndex === currentChapterIndex) {
           li.classList.add('active');
         }
 
-        li.innerHTML = `
-          <span class="item-title">${chap.title}</span>
-        `;
+        li.innerHTML = `<span class="item-title">${chap.title}</span>`;
 
         li.onclick = () => {
-          selectChapter(idx);
+          selectChapter(realIndex);
           document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
           li.classList.add('active');
         };
         menuList.appendChild(li);
       });
+    }
+
+    // 章節即時搜尋功能
+    function filterChapters() {
+      if (!currentCategory) return;
+      const keyword = document.getElementById('chapterSearch').value.trim().toLowerCase();
+      
+      if (!keyword) {
+        populateChapterList(currentCategory.chapters);
+        return;
+      }
+
+      const filtered = currentCategory.chapters.filter(chap => chap.title.toLowerCase().includes(keyword));
+      populateChapterList(filtered);
     }
 
     function selectChapter(index) {
@@ -688,10 +738,14 @@
       const newIndex = currentChapterIndex + direction;
       if (currentCategory && newIndex >= 0 && newIndex < currentCategory.chapters.length) {
         selectChapter(newIndex);
-        const menuItems = document.querySelectorAll('.menu-item');
-        menuItems.forEach((el, idx) => {
-          el.classList.toggle('active', idx === newIndex);
-        });
+        
+        // 重新渲染清單以確保高亮正確
+        const keyword = document.getElementById('chapterSearch').value.trim().toLowerCase();
+        if (keyword) {
+          filterChapters();
+        } else {
+          populateChapterList(currentCategory.chapters);
+        }
       }
     }
 
@@ -780,10 +834,8 @@
         const { error } = await dbClient.from('articles').insert([payload]);
         if (error) throw error;
 
-        // 重新從雲端載入以確保合併邏輯正確執行
         await fetchArticlesFromSupabase();
 
-        // 自動定位到剛上傳的系列與章節
         const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
         if (matchedCat) {
           renderChapters(matchedCat);
