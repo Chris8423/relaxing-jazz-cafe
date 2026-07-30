@@ -263,22 +263,32 @@
       margin-right: 6px;
     }
 
-    .delete-btn {
+    .action-icon-btn {
       background: none;
       border: none;
       color: var(--text-muted);
       cursor: pointer;
-      padding: 2px 6px;
+      padding: 4px 6px;
       border-radius: 4px;
       font-size: 0.85rem;
-      opacity: 0.6;
+      opacity: 0.7;
       transition: all 0.2s;
+    }
+
+    .action-icon-btn:hover {
+      opacity: 1;
+      background-color: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
     }
 
     .delete-btn:hover {
       color: var(--danger-color);
-      opacity: 1;
       background-color: rgba(255, 82, 82, 0.1);
+    }
+
+    .lock-btn:hover {
+      color: var(--lock-color);
+      background-color: rgba(255, 213, 79, 0.1);
     }
 
     /* 右側內文區 */
@@ -334,25 +344,6 @@
       font-size: 1.8rem;
       color: #ffffff;
       flex: 1;
-    }
-
-    .article-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    .action-btn {
-      background: none;
-      border: 1px solid var(--border-color);
-      color: var(--text-muted);
-      padding: 5px 10px;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      cursor: pointer;
-    }
-    .action-btn:hover {
-      background: var(--hover-color);
-      color: var(--text-main);
     }
 
     .article-body {
@@ -509,9 +500,6 @@
       <div class="article-card">
         <div class="article-header-row">
           <h1 id="article-title" class="article-title">請選擇文章</h1>
-          <div class="article-actions">
-            <button id="togglePrivateBtn" class="action-btn hidden" onclick="toggleCurrentPrivate()">🔒 設為私密</button>
-          </div>
         </div>
         <div id="article-body" class="article-body">請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。</div>
         
@@ -653,7 +641,6 @@
       document.getElementById('article-body').innerHTML = "請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。";
       document.getElementById('prev-btn').classList.add('disabled');
       document.getElementById('next-btn').classList.add('disabled');
-      document.getElementById('togglePrivateBtn').classList.add('hidden');
     }
 
     function onGroupChange() {
@@ -697,23 +684,44 @@
         li.className = 'menu-item';
         
         li.innerHTML = `
-          <div style="display:flex; align-items:center; overflow:hidden;">
+          <div style="display:flex; align-items:center; overflow:hidden; flex:1;" onclick="openCategoryFromList(${originalIndex})">
             ${selectedGroup === 'ALL' ? `<span class="tag-badge">${cat.group || '個人'}</span>` : ''}
             ${cat.is_private ? '<span class="private-badge">🔒</span>' : ''}
             <span class="item-title">${cat.categoryTitle}</span>
           </div>
-          <div>
-            <button class="delete-btn" title="刪除整個系列" onclick="deleteCategory(event, ${originalIndex})">🗑️</button>
-            <span style="margin-left: 5px; color: var(--text-muted);">›</span>
+          <div style="display:flex; align-items:center; gap:2px;">
+            <button class="action-icon-btn lock-btn" title="${cat.is_private ? '解鎖此系列' : '設為私密系列'}" onclick="toggleCategoryPrivate(event, ${originalIndex})">${cat.is_private ? '🔓' : '🔒'}</button>
+            <button class="action-icon-btn delete-btn" title="刪除整個系列" onclick="deleteCategory(event, ${originalIndex})">🗑️</button>
+            <span style="margin-left: 2px; color: var(--text-muted);">›</span>
           </div>
         `;
-        li.onclick = (e) => {
-          if (!e.target.classList.contains('delete-btn')) {
-            renderChapters(cat);
-          }
-        };
         menuList.appendChild(li);
       });
+    }
+
+    function openCategoryFromList(originalIndex) {
+      const cat = articlesData[originalIndex];
+      renderChapters(cat);
+    }
+
+    async function toggleCategoryPrivate(event, catIndex) {
+      event.stopPropagation();
+      const cat = articlesData[catIndex];
+      const newStatus = !cat.is_private;
+
+      // 如果要上鎖，但目前未解鎖私密區，需要提示或直接更新
+      try {
+        for (const id of cat.sourceIds) {
+          await dbClient.from('articles').update({ is_private: newStatus }).eq('id', id);
+        }
+
+        cat.is_private = newStatus;
+        renderCategories();
+        alert(newStatus ? `已將【${cat.categoryTitle}】設為私密系列` : `已將【${cat.categoryTitle}】解除私密`);
+      } catch (err) {
+        console.error("更新私密狀態失敗:", err);
+        alert("更新失敗。");
+      }
     }
 
     async function deleteCategory(event, catIndex) {
@@ -814,10 +822,6 @@
       document.getElementById('article-title').innerText = chapter.title;
       document.getElementById('article-body').innerHTML = chapter.content;
 
-      const togglePrivateBtn = document.getElementById('togglePrivateBtn');
-      togglePrivateBtn.classList.remove('hidden');
-      togglePrivateBtn.textContent = currentCategory.is_private ? "🔓 取消私密" : "🔒 設為私密";
-
       document.getElementById('content-area').scrollTop = 0;
 
       const prevBtn = document.getElementById('prev-btn');
@@ -860,25 +864,6 @@
         } else if (inputPwd !== null) {
           alert("❌ 密碼錯誤！");
         }
-      }
-    }
-
-    async function toggleCurrentPrivate() {
-      if (!currentCategory) return;
-      const newStatus = !currentCategory.is_private;
-
-      try {
-        for (const id of currentCategory.sourceIds) {
-          await dbClient.from('articles').update({ is_private: newStatus }).eq('id', id);
-        }
-
-        currentCategory.is_private = newStatus;
-        selectChapter(currentChapterIndex);
-        renderCategories();
-        alert(newStatus ? "已設為私密文章" : "已取消私密狀態");
-      } catch (err) {
-        console.error("更新私密狀態失敗:", err);
-        alert("更新失敗。");
       }
     }
 
