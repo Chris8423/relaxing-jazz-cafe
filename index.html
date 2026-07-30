@@ -598,6 +598,12 @@
         });
 
         articlesData = Object.values(map);
+
+        // 💡 依照文章系列名稱的第一個字筆畫進行排序 (使用 zh-Hant 筆畫模式)
+        articlesData.sort((a, b) => {
+          return a.categoryTitle.localeCompare(b.categoryTitle, 'zh-Hant-u-co-stroke');
+        });
+
         statusBadge.textContent = "☁️ 已連線雲端";
         statusBadge.style.color = "#81c784";
         renderCategories();
@@ -709,7 +715,6 @@
       const cat = articlesData[catIndex];
       const newStatus = !cat.is_private;
 
-      // 如果要上鎖，但目前未解鎖私密區，需要提示或直接更新
       try {
         for (const id of cat.sourceIds) {
           await dbClient.from('articles').update({ is_private: newStatus }).eq('id', id);
