@@ -53,6 +53,7 @@
       font-weight: bold;
       color: #ffffff;
       flex-shrink: 0;
+      z-index: 10;
     }
 
     .header-right {
@@ -359,15 +360,11 @@
       line-height: 1.8;
       color: #d4d4d4;
       flex: 1;
-      text-indent: 2em; /* 每段開頭自動空兩格 */
+      text-indent: 2em; /* 👈 每段開頭自動空兩格 */
     }
 
     .article-body p {
-      margin-bottom: 1.8rem; /* 段落與段落之間自動產生空行距離 */
-    }
-
-    .article-body p {
-      margin-bottom: 1.2rem;
+      margin-bottom: 1.8rem; /* 👈 段落與段落之間的空隙 */
     }
 
     .nav-links {
@@ -411,7 +408,6 @@
         position: relative;
       }
       
-      /* 手機預設全螢幕顯示左側選單 */
       .sidebar {
         width: 100%;
         height: 100%;
@@ -421,12 +417,10 @@
         z-index: 2;
       }
 
-      /* 當點擊文章進入閱讀時，隱藏選單 */
       .sidebar.mobile-hidden {
         transform: translateX(-100%);
       }
 
-      /* 右側內文區預設鋪滿但層級在後方，點擊後滑入顯示 */
       .content-area {
         position: absolute;
         top: 0;
@@ -784,7 +778,6 @@
           document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
           li.classList.add('active');
 
-          // 手機版點擊章節後，自動切換顯示右側內文區
           if (window.innerWidth <= 768) {
             document.getElementById('sidebarPanel').classList.add('mobile-hidden');
             document.getElementById('content-area').classList.add('mobile-active');
@@ -794,7 +787,6 @@
       });
     }
 
-    /* 手機版返回文章列表 */
     function backToMobileSidebar() {
       document.getElementById('sidebarPanel').classList.remove('mobile-hidden');
       document.getElementById('content-area').classList.remove('mobile-active');
