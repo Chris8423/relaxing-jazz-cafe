@@ -554,7 +554,6 @@
             if (chap.order === undefined || isNaN(chap.order)) {
               chap.order = extractChapterNumber(chap.title, idx);
             }
-            // 確保相同標題只保留一個最新或第一個
             if (!uniqueChaptersMap.has(chap.title)) {
               uniqueChaptersMap.set(chap.title, chap);
             }
@@ -595,7 +594,6 @@
             };
           } else {
             map[mapKey].sourceIds.push(art.id);
-            // 合併時也進行章節去重
             const existingChapTitles = new Set(map[mapKey].chapters.map(c => c.title));
             parsedChapters.forEach(chap => {
               if (!existingChapTitles.has(chap.title)) {
@@ -1013,7 +1011,6 @@
 
         statusBadge.textContent = "⏳ 檢查雲端舊文章...";
 
-        // 查詢雲端是否已有相同檔名的文章記錄
         const { data: existingArticles, error: fetchError } = await dbClient
           .from('articles')
           .select('id, title, chapters')
@@ -1027,14 +1024,11 @@
         if (existingArticles && existingArticles.length > 0) {
           const targetId = existingArticles[0].id;
           
-          // 🌟 核心防重複：取得該筆記錄原本的 chapters，並與這次上傳的內容進行「標題去重合併」
           let existingChapters = existingArticles[0].chapters || [];
           if (!Array.isArray(existingChapters)) existingChapters = [];
 
           const chapterMap = new Map();
-          // 先放入舊章節
           existingChapters.forEach(ch => chapterMap.set(ch.title, ch));
-          // 用新解析出來的章節覆蓋/新增（達到單篇更新效果）
           newParsedChapters.forEach(ch => chapterMap.set(ch.title, ch));
 
           const mergedChapters = Array.from(chapterMap.values());
@@ -1051,7 +1045,6 @@
 
           if (updateError) throw updateError;
         } else {
-          // 全新檔名：直接新增
           const customId = "art_" + Date.now();
           const payload = {
             id: customId,
@@ -1063,7 +1056,7 @@
             is_private: false
           };
 
-          const { error: insertError } = await dbClient.from('articles'].insert([payload]);
+          const { error: insertError } = await dbClient.from('articles').insert([payload]);
           if (insertError) throw insertError;
         }
 
