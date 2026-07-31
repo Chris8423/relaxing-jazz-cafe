@@ -559,11 +559,10 @@
             parsedChapters = [{ title: "全文", content: "無內容" }];
           }
 
-          // 確保每個章節都有 order 屬性（透過數值正規表達式或陣列順序）
+          // 確保每個章節都有 order 屬性（透過精準數字解析）
           parsedChapters.forEach((chap, idx) => {
-            if (chap.order === undefined) {
-              const match = chap.title.match(/\d+/);
-              chap.order = match ? parseInt(match[0], 10) : idx;
+            if (chap.order === undefined || isNaN(chap.order)) {
+              chap.order = extractChapterNumber(chap.title, idx);
             }
           });
 
@@ -615,7 +614,6 @@
 
         articlesData = Object.values(map);
 
-        // 依照文章系列名稱的第一個字筆畫進行排序 (使用 zh-Hant 筆畫模式)
         articlesData.sort((a, b) => {
           return a.categoryTitle.localeCompare(b.categoryTitle, 'zh-Hant-u-co-stroke');
         });
@@ -623,7 +621,6 @@
         statusBadge.textContent = "☁️ 已連線雲端";
         statusBadge.style.color = "#81c784";
         
-        // 若目前正在檢視某個分類的章節，重新整理後同步更新記憶體參照
         if (currentCategory) {
           const updatedCat = articlesData.find(c => c.group === currentCategory.group && c.categoryTitle === currentCategory.categoryTitle);
           if (updatedCat) {
@@ -641,6 +638,24 @@
         statusBadge.textContent = "⚠️ 連線失敗";
         statusBadge.style.color = "#e57373";
       }
+    }
+
+    // 精準萃取章節數字的輔助函式（防止 101 被誤判或抓錯數字）
+    function extractChapterNumber(title, defaultIndex) {
+      // 嘗試尋找「第」後面接數字，或者「章」前面的數字
+      const matchChapter = title.match(/第\s*([0-9]+)\s*章/);
+      if (matchChapter) {
+        return parseInt(matchChapter[1], 10);
+      }
+      
+      // 如果沒有「第...章」，則嘗試抓取整段標題中的所有數字，取最後一個或最合理的數字
+      const allNumbers = title.match(/\d+/g);
+      if (allNumbers && allNumbers.length > 0) {
+        // 通常章節數字會在後面，取最後一個數字（例如名稱帶有其他編號時較保險）
+        return parseInt(allNumbers[allNumbers.length - 1], 10);
+      }
+      
+      return defaultIndex;
     }
 
     function parseHtmlToChapters(htmlContent, defaultTitle) {
@@ -669,14 +684,9 @@
         chapters = [{ title: defaultTitle, content: htmlContent }];
       }
 
-      // 智慧萃取章節標題中的數字作為排序依據 (解決 6、17、65 排序錯亂問題)
+      // 為每個章節賦予正確的數值 order
       chapters.forEach((chap, idx) => {
-        const match = chap.title.match(/\d+/);
-        if (match) {
-          chap.order = parseInt(match[0], 10);
-        } else {
-          chap.order = idx;
-        }
+        chap.order = extractChapterNumber(chap.title, idx);
       });
 
       return chapters;
@@ -853,10 +863,8 @@
       const chapToDelete = currentCategory.chapters[chapterIndex];
       if (!confirm(`確定要刪除章節【${chapToDelete.title}】嗎？`)) return;
 
-      // 從該系列的章節陣列中移除該章
       currentCategory.chapters.splice(chapterIndex, 1);
 
-      // 如果刪除後整本系列空了，直接整本刪除
       if (currentCategory.chapters.length === 0) {
         try {
           for (const id of currentCategory.sourceIds) {
@@ -873,7 +881,6 @@
         return;
       }
 
-      // 將更新後的 chapters 陣列同步寫回資料庫
       try {
         const targetId = currentCategory.sourceIds[0];
         const { error } = await dbClient
@@ -883,14 +890,12 @@
 
         if (error) throw error;
 
-        // 若刪除的是當前正打開的章節，重設右側顯示
         if (currentChapterIndex === chapterIndex) {
           resetArticleDisplay();
         } else if (currentChapterIndex > chapterIndex) {
           currentChapterIndex--; 
         }
 
-        // 重新渲染章節列表
         const keyword = document.getElementById('chapterSearch').value.trim().toLowerCase();
         if (keyword) {
           filterChapters();
