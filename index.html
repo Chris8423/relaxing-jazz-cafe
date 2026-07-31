@@ -559,6 +559,16 @@
             parsedChapters = [{ title: "全文", content: "無內容" }];
           }
 
+          // 確保每個章節都有 order 屬性，若沒有則依據目前陣列順序給予初始值
+          parsedChapters.forEach((chap, idx) => {
+            if (chap.order === undefined) {
+              chap.order = idx;
+            }
+          });
+
+          // 依照固定的 order 進行升冪排序，確保刪除後重新載入順序不會亂跑
+          parsedChapters.sort((a, b) => a.order - b.order);
+
           const rawTitle = art.title || art.category_title || "未命名";
           let groupName = art.group || "個人";
           let seriesTitle = rawTitle;
@@ -595,6 +605,11 @@
             map[mapKey].sourceIds.push(art.id);
             map[mapKey].chapters.push(...parsedChapters);
           }
+        });
+
+        // 跨記錄合併的章節也統一依 order 排序
+        Object.values(map).forEach(cat => {
+          cat.chapters.sort((a, b) => a.order - b.order);
         });
 
         articlesData = Object.values(map);
@@ -650,8 +665,14 @@
 
       chapters.push(currentChap);
       if (chapters.length === 0 || (chapters.length === 1 && chapters[0].content === "")) {
-        return [{ title: defaultTitle, content: htmlContent }];
+        chapters = [{ title: defaultTitle, content: htmlContent }];
       }
+
+      // 為每個解析出來的章節賦予初始 order 序號
+      chapters.forEach((chap, idx) => {
+        chap.order = idx;
+      });
+
       return chapters;
     }
 
@@ -846,7 +867,7 @@
         return;
       }
 
-      // 否則，將更新後的 chapters 陣列同步寫回資料庫的第一筆記錄中（或對應來源）
+      // 否則，將更新後的 chapters 陣列同步寫回資料庫的第一筆記錄中（同時保留各自的 order 序號）
       try {
         const targetId = currentCategory.sourceIds[0];
         const { error } = await dbClient
@@ -922,7 +943,6 @@
         // 同步高亮選單項目
         const menuItems = document.querySelectorAll('.menu-item');
         menuItems.forEach((el, idx) => {
-          // 透過比對目前顯示的章節標題來找對應的選單項目
           const titleEl = el.querySelector('.item-title');
           if (titleEl && titleEl.textContent === currentCategory.chapters[newIndex].title) {
             el.classList.add('active');
