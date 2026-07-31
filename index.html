@@ -559,14 +559,12 @@
             parsedChapters = [{ title: "全文", content: "無內容" }];
           }
 
-          // 確保每個章節都有 order 屬性（透過精準數字解析）
           parsedChapters.forEach((chap, idx) => {
             if (chap.order === undefined || isNaN(chap.order)) {
               chap.order = extractChapterNumber(chap.title, idx);
             }
           });
 
-          // 嚴格依據數值大小順序排序
           parsedChapters.sort((a, b) => a.order - b.order);
 
           const rawTitle = art.title || art.category_title || "未命名";
@@ -607,7 +605,6 @@
           }
         });
 
-        // 跨記錄合併的章節也統一依數值 order 排序
         Object.values(map).forEach(cat => {
           cat.chapters.sort((a, b) => a.order - b.order);
         });
@@ -640,18 +637,14 @@
       }
     }
 
-    // 精準萃取章節數字的輔助函式（防止 101 被誤判或抓錯數字）
     function extractChapterNumber(title, defaultIndex) {
-      // 嘗試尋找「第」後面接數字，或者「章」前面的數字
       const matchChapter = title.match(/第\s*([0-9]+)\s*章/);
       if (matchChapter) {
         return parseInt(matchChapter[1], 10);
       }
       
-      // 如果沒有「第...章」，則嘗試抓取整段標題中的所有數字，取最後一個或最合理的數字
       const allNumbers = title.match(/\d+/g);
       if (allNumbers && allNumbers.length > 0) {
-        // 通常章節數字會在後面，取最後一個數字（例如名稱帶有其他編號時較保險）
         return parseInt(allNumbers[allNumbers.length - 1], 10);
       }
       
@@ -684,7 +677,6 @@
         chapters = [{ title: defaultTitle, content: htmlContent }];
       }
 
-      // 為每個章節賦予正確的數值 order
       chapters.forEach((chap, idx) => {
         chap.order = extractChapterNumber(chap.title, idx);
       });
@@ -985,6 +977,7 @@
       }
     }
 
+    // 📂 匯入 Word (具備自動覆蓋/取代同系列舊文章功能)
     async function handleWordUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -1018,8 +1011,31 @@
         }
 
         const chaptersArray = parseHtmlToChapters(htmlContent, chapterTitle);
-        const customId = "art_" + Date.now();
 
+        statusBadge.textContent = "⏳ 檢查雲端舊文章...";
+
+        // 1. 先檢查雲端是否已經存在相同分類與系列名稱的文章
+        const { data: existingArticles, error: fetchError } = await dbClient
+          .from('articles')
+          .select('id, group, category_title')
+          .eq('group', groupName)
+          .eq('category_title', seriesTitle);
+
+        if (fetchError) throw fetchError;
+
+        // 2. 如果雲端已經有相同系列的文章，先全部刪除（實現取代效果）
+        if (existingArticles && existingArticles.length > 0) {
+          const oldIds = existingArticles.map(item => item.id);
+          const { error: deleteError } = await dbClient
+            .from('articles')
+            .delete()
+            .in('id', oldIds);
+
+          if (deleteError) throw deleteError;
+        }
+
+        // 3. 建立並上傳新的文章記錄
+        const customId = "art_" + Date.now();
         const payload = {
           id: customId,
           title: fullFileName,
@@ -1030,10 +1046,11 @@
           is_private: false
         };
 
-        statusBadge.textContent = "⏳ 上傳雲端...";
-        const { error } = await dbClient.from('articles').insert([payload]);
-        if (error) throw error;
+        statusBadge.textContent = "⏳ 上傳新內容...";
+        const { error: insertError } = await dbClient.from('articles').insert([payload]);
+        if (insertError) throw insertError;
 
+        // 4. 重新抓取並重新整理畫面
         await fetchArticlesFromSupabase();
 
         const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
@@ -1043,11 +1060,16 @@
         }
 
         statusBadge.textContent = "☁️ 已連線雲端";
-        alert(`匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`);
+        
+        const message = (existingArticles && existingArticles.length > 0)
+          ? `更新成功！已自動取代舊的【${seriesTitle}】文章\n分類：【${groupName}】\n系列：【${seriesTitle}】`
+          : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`;
+        
+        alert(message);
         event.target.value = '';
       } catch (err) {
         console.error("上傳失敗:", err);
-        alert("匯入失敗，請確認檔案格式或網路連線。");
+        alert("匯入/更新失敗，請確認檔案格式或網路連線。");
         statusBadge.textContent = "☁️ 已連線雲端";
       }
     }
