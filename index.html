@@ -301,7 +301,6 @@
       background-color: var(--bg-dark);
     }
 
-    /* 手機版專屬的返回目錄按鈕（預設隱藏） */
     .mobile-back-list-btn {
       display: none;
       align-items: center;
@@ -393,12 +392,10 @@
       display: none !important;
     }
 
-    /* RWD 手機響應式適配 */
     @media (max-width: 768px) {
       .container {
         position: relative;
       }
-      
       .sidebar {
         width: 100%;
         height: 100%;
@@ -407,11 +404,9 @@
         left: 0;
         z-index: 2;
       }
-
       .sidebar.mobile-hidden {
         transform: translateX(-100%);
       }
-
       .content-area {
         position: absolute;
         top: 0;
@@ -424,21 +419,17 @@
         pointer-events: none;
         transition: opacity 0.2s ease;
       }
-
       .content-area.mobile-active {
         opacity: 1;
         pointer-events: auto;
         z-index: 3;
       }
-
       .mobile-back-list-btn {
         display: inline-flex;
       }
-
       .article-card {
         padding: 20px;
       }
-
       .article-title {
         font-size: 1.3rem;
       }
@@ -557,11 +548,18 @@
             parsedChapters = [{ title: "全文", content: "無內容" }];
           }
 
+          // 🌟 嚴格過濾重複標題的章節，避免雲端帶有重複資料時直接渲染出來
+          const uniqueChaptersMap = new Map();
           parsedChapters.forEach((chap, idx) => {
             if (chap.order === undefined || isNaN(chap.order)) {
               chap.order = extractChapterNumber(chap.title, idx);
             }
+            // 確保相同標題只保留一個最新或第一個
+            if (!uniqueChaptersMap.has(chap.title)) {
+              uniqueChaptersMap.set(chap.title, chap);
+            }
           });
+          parsedChapters = Array.from(uniqueChaptersMap.values());
 
           const rawTitle = art.title || art.category_title || "未命名";
           let groupName = art.group || "個人";
@@ -597,7 +595,14 @@
             };
           } else {
             map[mapKey].sourceIds.push(art.id);
-            map[mapKey].chapters.push(...parsedChapters);
+            // 合併時也進行章節去重
+            const existingChapTitles = new Set(map[mapKey].chapters.map(c => c.title));
+            parsedChapters.forEach(chap => {
+              if (!existingChapTitles.has(chap.title)) {
+                map[mapKey].chapters.push(chap);
+                existingChapTitles.add(chap.title);
+              }
+            });
           }
         });
 
@@ -638,12 +643,10 @@
       if (matchChapter) {
         return parseInt(matchChapter[1], 10);
       }
-      
       const allNumbers = title.match(/\d+/g);
       if (allNumbers && allNumbers.length > 0) {
         return parseInt(allNumbers[allNumbers.length - 1], 10);
       }
-      
       return defaultIndex;
     }
 
@@ -973,12 +976,12 @@
       }
     }
 
-    // 📂 匯入 Word (具備原地覆蓋「同檔名」舊文章功能，不刪除其他同系列文章)
+    // 📂 匯入 Word (具備自動去重、單一檔案覆蓋機制)
     async function handleWordUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
-      const fullFileName = file.name.replace(/\.[^/.]+$/, "").trim(); // 這是完整的原始檔名
+      const fullFileName = file.name.replace(/\.[^/.]+$/, "").trim(); 
       const currentSelectedGroup = document.getElementById('group-select').value;
 
       try {
@@ -1006,15 +1009,15 @@
           chapterTitle = parts.slice(1).join("_").trim();
         }
 
-        const chaptersArray = parseHtmlToChapters(htmlContent, chapterTitle);
+        const newParsedChapters = parseHtmlToChapters(htmlContent, chapterTitle);
 
         statusBadge.textContent = "⏳ 檢查雲端舊文章...";
 
-        // 🌟【關鍵修改】：只尋找「檔名 (title)」跟剛上傳的檔案「完全一樣」的那一筆資料
+        // 查詢雲端是否已有相同檔名的文章記錄
         const { data: existingArticles, error: fetchError } = await dbClient
           .from('articles')
-          .select('id, title')
-          .eq('title', fullFileName) // 👈 只找一模一樣的原始檔名
+          .select('id, title, chapters')
+          .eq('title', fullFileName)
           .eq('group', groupName);
 
         if (fetchError) throw fetchError;
@@ -1022,21 +1025,33 @@
         statusBadge.textContent = "⏳ 上傳更新內容...";
 
         if (existingArticles && existingArticles.length > 0) {
-          // 找到了檔名完全相同的舊文章，直接「原地 UPDATE 更新」這一筆
-          // 因為只更新這一筆，所以同系列的其他檔案（如 138章、139章）都不會被動到！
           const targetId = existingArticles[0].id;
+          
+          // 🌟 核心防重複：取得該筆記錄原本的 chapters，並與這次上傳的內容進行「標題去重合併」
+          let existingChapters = existingArticles[0].chapters || [];
+          if (!Array.isArray(existingChapters)) existingChapters = [];
+
+          const chapterMap = new Map();
+          // 先放入舊章節
+          existingChapters.forEach(ch => chapterMap.set(ch.title, ch));
+          // 用新解析出來的章節覆蓋/新增（達到單篇更新效果）
+          newParsedChapters.forEach(ch => chapterMap.set(ch.title, ch));
+
+          const mergedChapters = Array.from(chapterMap.values());
+          mergedChapters.sort((a, b) => (a.order || 0) - (b.order || 0));
+
           const { error: updateError } = await dbClient
             .from('articles')
             .update({
               content: htmlContent,
-              chapters: chaptersArray,
-              category_title: seriesTitle // 確保系列名也對齊
+              chapters: mergedChapters,
+              category_title: seriesTitle 
             })
             .eq('id', targetId);
 
           if (updateError) throw updateError;
         } else {
-          // 如果是一篇全新檔名的文章，就用 INSERT 新增
+          // 全新檔名：直接新增
           const customId = "art_" + Date.now();
           const payload = {
             id: customId,
@@ -1044,21 +1059,19 @@
             group: groupName,
             category_title: seriesTitle,
             content: htmlContent,
-            chapters: chaptersArray,
+            chapters: newParsedChapters,
             is_private: false
           };
 
-          const { error: insertError } = await dbClient.from('articles').insert([payload]);
+          const { error: insertError } = await dbClient.from('articles'].insert([payload]);
           if (insertError) throw insertError;
         }
 
-        // 重新抓取並重新整理畫面
         await fetchArticlesFromSupabase();
 
         const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
         if (matchedCat) {
           renderChapters(matchedCat);
-          // 嘗試跳到剛剛上傳/更新的那一章
           const newChapIndex = matchedCat.chapters.findIndex(ch => ch.title === chapterTitle);
           selectChapter(newChapIndex !== -1 ? newChapIndex : 0);
         }
@@ -1066,7 +1079,7 @@
         statusBadge.textContent = "☁️ 已連線雲端";
         
         const message = (existingArticles && existingArticles.length > 0)
-          ? `更新成功！已覆蓋同檔名的舊文章【${fullFileName}】（舊系列其他章節已保留）\n分類：【${groupName}】\n系列：【${seriesTitle}】`
+          ? `更新成功！已更新檔案【${fullFileName}】並自動去重（系列其他章節已保留）\n分類：【${groupName}】\n系列：【${seriesTitle}】`
           : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`;
         
         alert(message);
