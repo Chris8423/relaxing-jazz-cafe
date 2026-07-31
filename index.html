@@ -351,11 +351,11 @@
       line-height: 1.8;
       color: #d4d4d4;
       flex: 1;
-      text-indent: 2em; /* 👈 每段開頭自動空兩格 */
+      text-indent: 2em;
     }
 
     .article-body p {
-      margin-bottom: 1.8rem; /* 👈 段落與段落之間的空隙 */
+      margin-bottom: 1.8rem;
     }
 
     .nav-links {
@@ -393,7 +393,7 @@
       display: none !important;
     }
 
-    /* RWD 手機響應式適配 (螢幕寬度小於 768px 時) */
+    /* RWD 手機響應式適配 */
     @media (max-width: 768px) {
       .container {
         position: relative;
@@ -494,7 +494,6 @@
 
     <!-- 右側欄：內文顯示 -->
     <div class="content-area" id="content-area">
-      <!-- 手機專屬返回目錄按鈕 -->
       <button class="mobile-back-list-btn" onclick="backToMobileSidebar()">← 返回文章列表</button>
 
       <div class="article-card">
@@ -503,7 +502,6 @@
         </div>
         <div id="article-body" class="article-body">請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。</div>
         
-        <!-- 上下一章連結 -->
         <div class="nav-links">
           <button id="prev-btn" class="nav-btn disabled" onclick="navigateChapter(-1)">← 上一篇</button>
           <button id="next-btn" class="nav-btn disabled" onclick="navigateChapter(1)">下一篇 →</button>
@@ -564,8 +562,6 @@
               chap.order = extractChapterNumber(chap.title, idx);
             }
           });
-
-          parsedChapters.sort((a, b) => a.order - b.order);
 
           const rawTitle = art.title || art.category_title || "未命名";
           let groupName = art.group || "個人";
@@ -977,12 +973,12 @@
       }
     }
 
-    // 📂 匯入 Word (具備自動覆蓋/取代同系列舊文章功能)
+    // 📂 匯入 Word (具備原地覆蓋「同檔名」舊文章功能，不刪除其他同系列文章)
     async function handleWordUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
-      const fullFileName = file.name.replace(/\.[^/.]+$/, "").trim();
+      const fullFileName = file.name.replace(/\.[^/.]+$/, "").trim(); // 這是完整的原始檔名
       const currentSelectedGroup = document.getElementById('group-select').value;
 
       try {
@@ -1014,55 +1010,63 @@
 
         statusBadge.textContent = "⏳ 檢查雲端舊文章...";
 
-        // 1. 先檢查雲端是否已經存在相同分類與系列名稱的文章
+        // 🌟【關鍵修改】：只尋找「檔名 (title)」跟剛上傳的檔案「完全一樣」的那一筆資料
         const { data: existingArticles, error: fetchError } = await dbClient
           .from('articles')
-          .select('id, group, category_title')
-          .eq('group', groupName)
-          .eq('category_title', seriesTitle);
+          .select('id, title')
+          .eq('title', fullFileName) // 👈 只找一模一樣的原始檔名
+          .eq('group', groupName);
 
         if (fetchError) throw fetchError;
 
-        // 2. 如果雲端已經有相同系列的文章，先全部刪除（實現取代效果）
-        if (existingArticles && existingArticles.length > 0) {
-          const oldIds = existingArticles.map(item => item.id);
-          const { error: deleteError } = await dbClient
-            .from('articles')
-            .delete()
-            .in('id', oldIds);
+        statusBadge.textContent = "⏳ 上傳更新內容...";
 
-          if (deleteError) throw deleteError;
+        if (existingArticles && existingArticles.length > 0) {
+          // 找到了檔名完全相同的舊文章，直接「原地 UPDATE 更新」這一筆
+          // 因為只更新這一筆，所以同系列的其他檔案（如 138章、139章）都不會被動到！
+          const targetId = existingArticles[0].id;
+          const { error: updateError } = await dbClient
+            .from('articles')
+            .update({
+              content: htmlContent,
+              chapters: chaptersArray,
+              category_title: seriesTitle // 確保系列名也對齊
+            })
+            .eq('id', targetId);
+
+          if (updateError) throw updateError;
+        } else {
+          // 如果是一篇全新檔名的文章，就用 INSERT 新增
+          const customId = "art_" + Date.now();
+          const payload = {
+            id: customId,
+            title: fullFileName,
+            group: groupName,
+            category_title: seriesTitle,
+            content: htmlContent,
+            chapters: chaptersArray,
+            is_private: false
+          };
+
+          const { error: insertError } = await dbClient.from('articles').insert([payload]);
+          if (insertError) throw insertError;
         }
 
-        // 3. 建立並上傳新的文章記錄
-        const customId = "art_" + Date.now();
-        const payload = {
-          id: customId,
-          title: fullFileName,
-          group: groupName,
-          category_title: seriesTitle,
-          content: htmlContent,
-          chapters: chaptersArray,
-          is_private: false
-        };
-
-        statusBadge.textContent = "⏳ 上傳新內容...";
-        const { error: insertError } = await dbClient.from('articles').insert([payload]);
-        if (insertError) throw insertError;
-
-        // 4. 重新抓取並重新整理畫面
+        // 重新抓取並重新整理畫面
         await fetchArticlesFromSupabase();
 
         const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
         if (matchedCat) {
           renderChapters(matchedCat);
-          selectChapter(0);
+          // 嘗試跳到剛剛上傳/更新的那一章
+          const newChapIndex = matchedCat.chapters.findIndex(ch => ch.title === chapterTitle);
+          selectChapter(newChapIndex !== -1 ? newChapIndex : 0);
         }
 
         statusBadge.textContent = "☁️ 已連線雲端";
         
         const message = (existingArticles && existingArticles.length > 0)
-          ? `更新成功！已自動取代舊的【${seriesTitle}】文章\n分類：【${groupName}】\n系列：【${seriesTitle}】`
+          ? `更新成功！已覆蓋同檔名的舊文章【${fullFileName}】（舊系列其他章節已保留）\n分類：【${groupName}】\n系列：【${seriesTitle}】`
           : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`;
         
         alert(message);
