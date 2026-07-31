@@ -599,14 +599,27 @@
 
         articlesData = Object.values(map);
 
-        // 💡 依照文章系列名稱的第一個字筆畫進行排序 (使用 zh-Hant 筆畫模式)
+        // 依照文章系列名稱的第一個字筆畫進行排序 (使用 zh-Hant 筆畫模式)
         articlesData.sort((a, b) => {
           return a.categoryTitle.localeCompare(b.categoryTitle, 'zh-Hant-u-co-stroke');
         });
 
         statusBadge.textContent = "☁️ 已連線雲端";
         statusBadge.style.color = "#81c784";
-        renderCategories();
+        
+        // 若目前正在檢視某個分類的章節，重新整理後同步更新記憶體參照
+        if (currentCategory) {
+          const updatedCat = articlesData.find(c => c.group === currentCategory.group && c.categoryTitle === currentCategory.categoryTitle);
+          if (updatedCat) {
+            currentCategory = updatedCat;
+            populateChapterList(currentCategory.chapters);
+          } else {
+            renderCategories();
+            resetArticleDisplay();
+          }
+        } else {
+          renderCategories();
+        }
       } catch (err) {
         console.error("載入失敗:", err);
         statusBadge.textContent = "⚠️ 連線失敗";
@@ -647,6 +660,7 @@
       document.getElementById('article-body').innerHTML = "請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。";
       document.getElementById('prev-btn').classList.add('disabled');
       document.getElementById('next-btn').classList.add('disabled');
+      currentChapterIndex = -1;
     }
 
     function onGroupChange() {
@@ -749,7 +763,7 @@
 
     function renderChapters(category) {
       currentCategory = category;
-      const menuList = document.getElementById('menu-list');
+      currentChapterIndex = -1;
       const sidebarTitle = document.getElementById('sidebar-title');
       const backBtn = document.getElementById('back-btn');
       const groupFilterSection = document.getElementById('group-filter-section');
@@ -784,20 +798,84 @@
           li.classList.add('active');
         }
 
-        li.innerHTML = `<span class="item-title">${chap.title}</span>`;
-
-        li.onclick = () => {
-          selectChapter(realIndex);
-          document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
-          li.classList.add('active');
-
-          if (window.innerWidth <= 768) {
-            document.getElementById('sidebarPanel').classList.add('mobile-hidden');
-            document.getElementById('content-area').classList.add('mobile-active');
-          }
-        };
+        li.innerHTML = `
+          <div style="display:flex; align-items:center; overflow:hidden; flex:1;" onclick="selectChapterAndHighlight(${realIndex}, this)">
+            <span class="item-title">${chap.title}</span>
+          </div>
+          <button class="action-icon-btn delete-btn" title="刪除此章節" onclick="deleteSingleChapter(event, ${realIndex})">🗑️</button>
+        `;
         menuList.appendChild(li);
       });
+    }
+
+    function selectChapterAndHighlight(realIndex, itemElement) {
+      selectChapter(realIndex);
+      document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+      itemElement.closest('.menu-item').classList.add('active');
+
+      if (window.innerWidth <= 768) {
+        document.getElementById('sidebarPanel').classList.add('mobile-hidden');
+        document.getElementById('content-area').classList.add('mobile-active');
+      }
+    }
+
+    async function deleteSingleChapter(event, chapterIndex) {
+      event.stopPropagation();
+      if (!currentCategory) return;
+
+      const chapToDelete = currentCategory.chapters[chapterIndex];
+      if (!confirm(`確定要刪除章節【${chapToDelete.title}】嗎？`)) return;
+
+      // 從該系列的章節陣列中移除該章
+      currentCategory.chapters.splice(chapterIndex, 1);
+
+      // 如果刪除後整本系列空了，直接整本刪除
+      if (currentCategory.chapters.length === 0) {
+        try {
+          for (const id of currentCategory.sourceIds) {
+            await dbClient.from('articles').delete().eq('id', id);
+          }
+          await fetchArticlesFromSupabase();
+          renderCategories();
+          resetArticleDisplay();
+          alert("章節已清空，系列已自動移除。");
+        } catch (err) {
+          console.error("刪除失敗:", err);
+          alert("雲端同步刪除失敗。");
+        }
+        return;
+      }
+
+      // 否則，將更新後的 chapters 陣列同步寫回資料庫的第一筆記錄中（或對應來源）
+      try {
+        const targetId = currentCategory.sourceIds[0];
+        const { error } = await dbClient
+          .from('articles')
+          .update({ chapters: currentCategory.chapters })
+          .eq('id', targetId);
+
+        if (error) throw error;
+
+        // 若刪除的是當前正打開的章節，重設右側顯示
+        if (currentChapterIndex === chapterIndex) {
+          resetArticleDisplay();
+        } else if (currentChapterIndex > chapterIndex) {
+          currentChapterIndex--; // 調整索引位移
+        }
+
+        // 重新渲染章節列表
+        const keyword = document.getElementById('chapterSearch').value.trim().toLowerCase();
+        if (keyword) {
+          filterChapters();
+        } else {
+          populateChapterList(currentCategory.chapters);
+        }
+
+        statusBadge.textContent = "☁️ 已連線雲端";
+      } catch (err) {
+        console.error("更新章節失敗:", err);
+        alert("刪除章節同步到雲端失敗。");
+      }
     }
 
     function backToMobileSidebar() {
@@ -841,12 +919,17 @@
       if (currentCategory && newIndex >= 0 && newIndex < currentCategory.chapters.length) {
         selectChapter(newIndex);
         
-        const keyword = document.getElementById('chapterSearch').value.trim().toLowerCase();
-        if (keyword) {
-          filterChapters();
-        } else {
-          populateChapterList(currentCategory.chapters);
-        }
+        // 同步高亮選單項目
+        const menuItems = document.querySelectorAll('.menu-item');
+        menuItems.forEach((el, idx) => {
+          // 透過比對目前顯示的章節標題來找對應的選單項目
+          const titleEl = el.querySelector('.item-title');
+          if (titleEl && titleEl.textContent === currentCategory.chapters[newIndex].title) {
+            el.classList.add('active');
+          } else {
+            el.classList.remove('active');
+          }
+        });
       }
     }
 
