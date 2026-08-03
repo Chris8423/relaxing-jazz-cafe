@@ -349,7 +349,7 @@
       flex: 1;
     }
 
-    /* 🛠️ 內文與表格滾動區容器包裝 */
+    /* 內文與表格滾動區容器包裝 */
     .article-body-wrapper {
       position: relative;
       flex: 1;
@@ -357,7 +357,7 @@
       flex-direction: column;
     }
 
-    /* 🛠️ 隱藏橫拉條 (overflow-x改為hidden) */
+    /* 隱藏橫拉條 */
     .article-body {
       font-size: 1.05rem;
       line-height: 1.8;
@@ -366,10 +366,10 @@
       overflow-x: hidden; 
     }
 
-    /* 🎯 左右側隨上下捲動的滑動按鈕容器 */
+    /* 左右側隨上下捲動的滑動按鈕容器 */
     .scroll-btn-left, .scroll-btn-right {
       position: absolute;
-      top: 30%; /* 初始位置偏上方，會隨上下滑動條在畫面上滾動 */
+      top: 30%;
       transform: translateY(-50%);
       background-color: rgba(37, 37, 38, 0.9);
       color: var(--accent-color);
@@ -407,7 +407,7 @@
       text-indent: 2em;
     }
 
-    /* 🛠️ Excel 表格優化：強制橫排、允許寬鬆往右延展 */
+    /* Excel 表格樣式 */
     .article-body table {
       width: max-content;
       min-width: 100%;
@@ -581,9 +581,9 @@
         
         <!-- 包裝容器與左右側跟隨捲動的滑動按鈕 -->
         <div class="article-body-wrapper">
-          <button class="scroll-btn-left" id="scrollLeftBtn" title="向左捲動" onclick="scrollTable(-300)">◀</button>
+          <button class="scroll-btn-left hidden" id="scrollLeftBtn" title="向左捲動" onclick="scrollTable(-300)">◀</button>
           <div id="article-body" class="article-body">請從左側選單選擇文章，或點擊「📂 匯入 Word / Excel」新增檔案。</div>
-          <button class="scroll-btn-right" id="scrollRightBtn" title="向右捲動" onclick="scrollTable(300)">▶</button>
+          <button class="scroll-btn-right hidden" id="scrollRightBtn" title="向右捲動" onclick="scrollTable(300)">▶</button>
         </div>
         
         <div class="nav-links">
@@ -619,7 +619,7 @@
       setupButtonPositionTracking();
     });
 
-    /* 🎯 讓左右按鈕隨著「內文上下捲動條」一起在畫面上上下移動 */
+    /* 讓左右按鈕隨著「內文上下捲動條」一起在畫面上上下移動 */
     function setupButtonPositionTracking() {
       const contentArea = document.getElementById('content-area');
       const btnLeft = document.getElementById('scrollLeftBtn');
@@ -627,13 +627,13 @@
 
       contentArea.addEventListener('scroll', () => {
         const scrollTop = contentArea.scrollTop;
-        const newTop = scrollTop + 200; // 隨著捲動位置動態調整按鈕的垂直位置
+        const newTop = scrollTop + 200; 
         btnLeft.style.top = `${newTop}px`;
         btnRight.style.top = `${newTop}px`;
       });
     }
 
-    /* 🎯 點擊左右按鈕平滑滾動表格 */
+    /* 點擊左右按鈕平滑滾動表格 */
     function scrollTable(offset) {
       const bodyEl = document.getElementById('article-body');
       bodyEl.scrollBy({ left: offset, behavior: 'smooth' });
@@ -808,6 +808,8 @@
       document.getElementById('article-body').innerHTML = "請從左側選單選擇文章，或點擊「📂 匯入 Word / Excel」新增檔案。";
       document.getElementById('prev-btn').classList.add('disabled');
       document.getElementById('next-btn').classList.add('disabled');
+      document.getElementById('scrollLeftBtn').classList.add('hidden');
+      document.getElementById('scrollRightBtn').classList.add('hidden');
       currentChapterIndex = -1;
     }
 
@@ -1050,6 +1052,20 @@
 
       document.getElementById('content-area').scrollTop = 0;
       document.getElementById('article-body').scrollLeft = 0;
+
+      // 🎯 判斷內文是否包含表格（若為 Excel 匯入產生的表格，則顯示左右捲動按鈕，否則隱藏）
+      const bodyEl = document.getElementById('article-body');
+      const hasTable = bodyEl.querySelector('table') !== null;
+      const scrollLeftBtn = document.getElementById('scrollLeftBtn');
+      const scrollRightBtn = document.getElementById('scrollRightBtn');
+
+      if (hasTable) {
+        scrollLeftBtn.classList.remove('hidden');
+        scrollRightBtn.classList.remove('hidden');
+      } else {
+        scrollLeftBtn.classList.add('hidden');
+        scrollRightBtn.classList.add('hidden');
+      }
 
       const prevBtn = document.getElementById('prev-btn');
       const nextBtn = document.getElementById('next-btn');
