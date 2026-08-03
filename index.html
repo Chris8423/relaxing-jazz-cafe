@@ -359,9 +359,10 @@
       text-indent: 2em;
     }
 
-    /* 支援 Excel 表格的美化樣式 */
+    /* 🛠️ Excel 表格優化：強制橫排、允許寬鬆往右延展與橫向捲動 */
     .article-body table {
-      width: 100%;
+      width: max-content;
+      min-width: 100%;
       border-collapse: collapse;
       margin-top: 15px;
       margin-bottom: 15px;
@@ -371,10 +372,18 @@
       overflow: hidden;
     }
 
+    /* 讓表格的外層自動產生橫向捲軸，保持版面清爽好讀 */
+    .article-body {
+      overflow-x: auto;
+    }
+
     .article-body th, .article-body td {
       border: 1px solid var(--border-color);
-      padding: 10px 14px;
+      padding: 12px 18px;
       text-align: left;
+      /* 強制橫向文字排列，取消直排與擠壓 */
+      writing-mode: horizontal-tb !important;
+      white-space: nowrap !important;
     }
 
     .article-body th {
@@ -1016,7 +1025,6 @@
       }
     }
 
-    // 📂 統一檔案上傳入口 (支援 .docx 與 .xlsx / .xls)
     async function handleFileUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -1054,12 +1062,10 @@
         const arrayBuffer = await file.arrayBuffer();
 
         if (fileExt === 'docx') {
-          // 解析 Word
           const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
           htmlContent = result.value;
           newParsedChapters = parseHtmlToChapters(htmlContent, fullFileName);
         } else if (fileExt === 'xlsx' || fileExt === 'xls') {
-          // 解析 Excel (每個工作表轉換為獨立章節或表格)
           const workbook = XLSX.read(arrayBuffer, { type: 'array' });
           newParsedChapters = [];
 
