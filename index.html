@@ -6,6 +6,8 @@
   <title>我的文章庫 (雲端同步版)</title>
   <!-- 引入 Mammoth.js 用於解析 Word (.docx) 檔案 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <!-- 引入 SheetJS (xlsx.full.min.js) 用於解析 Excel 檔案 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- 引入 Supabase JS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
@@ -136,7 +138,7 @@
       border-color: var(--accent-color);
     }
 
-    /* 匯入 Word 按鈕區域 */
+    /* 匯入檔案按鈕區域 */
     .import-section {
       padding: 12px 15px;
       border-bottom: 1px solid var(--border-color);
@@ -317,7 +319,7 @@
     }
 
     .article-card {
-      max-width: 800px;
+      max-width: 900px;
       margin: 0 auto;
       width: 100%;
       background-color: var(--bg-card);
@@ -350,11 +352,43 @@
       line-height: 1.8;
       color: #d4d4d4;
       flex: 1;
-      text-indent: 2em;
     }
 
     .article-body p {
       margin-bottom: 1.8rem;
+      text-indent: 2em;
+    }
+
+    /* 支援 Excel 表格的美化樣式 */
+    .article-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      margin-bottom: 15px;
+      font-size: 0.95rem;
+      background-color: #1a1a1a;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .article-body th, .article-body td {
+      border: 1px solid var(--border-color);
+      padding: 10px 14px;
+      text-align: left;
+    }
+
+    .article-body th {
+      background-color: #2d3748;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .article-body tr:nth-child(even) {
+      background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    .article-body tr:hover {
+      background-color: rgba(255, 255, 255, 0.05);
     }
 
     .nav-links {
@@ -465,10 +499,10 @@
         </select>
       </div>
 
-      <!-- 匯入 Word 檔案區塊 -->
+      <!-- 匯入 Word / Excel 檔案區塊 -->
       <div id="import-section" class="import-section">
-        <label for="word-input" class="import-btn-label">📂 匯入 Word (.docx)</label>
-        <input type="file" id="word-input" accept=".docx" class="hidden" onchange="handleWordUpload(event)">
+        <label for="file-input" class="import-btn-label">📂 匯入 Word / Excel</label>
+        <input type="file" id="file-input" accept=".docx, .xlsx, .xls" class="hidden" onchange="handleFileUpload(event)">
       </div>
 
       <!-- 章節專屬工具列 -->
@@ -491,7 +525,7 @@
         <div class="article-header-row">
           <h1 id="article-title" class="article-title">請選擇文章</h1>
         </div>
-        <div id="article-body" class="article-body">請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。</div>
+        <div id="article-body" class="article-body">請從左側選單選擇文章，或點擊「📂 匯入 Word / Excel」新增檔案。</div>
         
         <div class="nav-links">
           <button id="prev-btn" class="nav-btn disabled" onclick="navigateChapter(-1)">← 上一篇</button>
@@ -671,11 +705,10 @@
 
       chapters.push(currentChap);
 
-      // 💡 智慧副標題修正：如果完全沒抓到正規章節，且 defaultTitle 帶有多層底線（例如 情報_精選網站_風俗），則直接取最後一段當副標題名稱，不再命名為「全本內文」
       if (chapters.length === 1 && chapters[0].content !== "") {
         const parts = defaultTitle.split(/[_ -]+/);
         if (parts.length >= 3) {
-          chapters[0].title = parts[parts.length - 1]; // 例如取 "風俗"
+          chapters[0].title = parts[parts.length - 1]; 
         } else if (parts.length === 2) {
           chapters[0].title = parts[1];
         } else {
@@ -692,7 +725,7 @@
 
     function resetArticleDisplay() {
       document.getElementById('article-title').innerText = "請選擇文章";
-      document.getElementById('article-body').innerHTML = "請從左側選單選擇文章，或點擊「📂 匯入 Word (.docx)」新增文章。";
+      document.getElementById('article-body').innerHTML = "請從左側選單選擇文章，或點擊「📂 匯入 Word / Excel」新增檔案。";
       document.getElementById('prev-btn').classList.add('disabled');
       document.getElementById('next-btn').classList.add('disabled');
       currentChapterIndex = -1;
@@ -983,19 +1016,20 @@
       }
     }
 
-    // 📂 匯入 Word (具備自動解析三段命名與去重機制)
-    async function handleWordUpload(event) {
+    // 📂 統一檔案上傳入口 (支援 .docx 與 .xlsx / .xls)
+    async function handleFileUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
-      const fullFileName = file.name.replace(/\.[^/.]+$/, "").trim(); 
+      const fileName = file.name;
+      const fullFileName = fileName.replace(/\.[^/.]+$/, "").trim(); 
+      const fileExt = fileName.split('.').pop().toLowerCase();
       const currentSelectedGroup = document.getElementById('group-select').value;
 
       try {
         statusBadge.textContent = "⏳ 解析中...";
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
-        const htmlContent = result.value;
+        let htmlContent = "";
+        let newParsedChapters = [];
 
         let groupName = (currentSelectedGroup === 'ALL') ? '個人' : currentSelectedGroup;
         let seriesTitle = fullFileName;
@@ -1017,7 +1051,39 @@
           chapterTitle = parts.slice(1).join("_").trim();
         }
 
-        const newParsedChapters = parseHtmlToChapters(htmlContent, fullFileName);
+        const arrayBuffer = await file.arrayBuffer();
+
+        if (fileExt === 'docx') {
+          // 解析 Word
+          const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+          htmlContent = result.value;
+          newParsedChapters = parseHtmlToChapters(htmlContent, fullFileName);
+        } else if (fileExt === 'xlsx' || fileExt === 'xls') {
+          // 解析 Excel (每個工作表轉換為獨立章節或表格)
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          newParsedChapters = [];
+
+          workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            const sheetHtml = XLSX.utils.sheet_to_html(worksheet, { header: "" });
+            newParsedChapters.push({
+              title: sheetName,
+              content: sheetHtml,
+              order: newParsedChapters.length
+            });
+          });
+
+          if (newParsedChapters.length > 0) {
+            htmlContent = newParsedChapters[0].content;
+          } else {
+            htmlContent = "<p>空白試算表</p>";
+            newParsedChapters = [{ title: chapterTitle, content: htmlContent, order: 0 }];
+          }
+        } else {
+          alert("不支援的檔案格式！僅支援 .docx 與 .xlsx / .xls");
+          statusBadge.textContent = "☁️ 已連線雲端";
+          return;
+        }
 
         statusBadge.textContent = "⏳ 檢查雲端舊文章...";
 
@@ -1075,15 +1141,15 @@
         const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
         if (matchedCat) {
           renderChapters(matchedCat);
-          const newChapIndex = matchedCat.chapters.findIndex(ch => ch.title === chapterTitle);
+          const newChapIndex = matchedCat.chapters.findIndex(ch => ch.title === chapterTitle || ch.title === matchedCat.chapters[0].title);
           selectChapter(newChapIndex !== -1 ? newChapIndex : 0);
         }
 
         statusBadge.textContent = "☁️ 已連線雲端";
         
         const message = (existingArticles && existingArticles.length > 0)
-          ? `更新成功！已更新檔案【${fullFileName}】並自動去重\n分類：【${groupName}】\n系列：【${seriesTitle}】\n副標題：【${chapterTitle}】`
-          : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】\n副標題：【${chapterTitle}】`;
+          ? `更新成功！已更新檔案【${fullFileName}】並自動去重\n分類：【${groupName}】\n系列：【${seriesTitle}】`
+          : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`;
         
         alert(message);
         event.target.value = '';
