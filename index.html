@@ -540,15 +540,16 @@
 
         (data || []).forEach(art => {
           let parsedChapters = [];
+          const rawTitle = art.title || art.category_title || "未命名";
+
           if (Array.isArray(art.chapters) && art.chapters.length > 0) {
             parsedChapters = art.chapters;
           } else if (art.content) {
-            parsedChapters = parseHtmlToChapters(art.content, art.title || "全文");
+            parsedChapters = parseHtmlToChapters(art.content, rawTitle);
           } else {
-            parsedChapters = [{ title: "全文", content: "無內容" }];
+            parsedChapters = [{ title: rawTitle, content: "無內容" }];
           }
 
-          // 🌟 嚴格過濾重複標題的章節，避免雲端帶有重複資料時直接渲染出來
           const uniqueChaptersMap = new Map();
           parsedChapters.forEach((chap, idx) => {
             if (chap.order === undefined || isNaN(chap.order)) {
@@ -560,7 +561,6 @@
           });
           parsedChapters = Array.from(uniqueChaptersMap.values());
 
-          const rawTitle = art.title || art.category_title || "未命名";
           let groupName = art.group || "個人";
           let seriesTitle = rawTitle;
 
@@ -670,8 +670,17 @@
       });
 
       chapters.push(currentChap);
-      if (chapters.length === 0 || (chapters.length === 1 && chapters[0].content === "")) {
-        chapters = [{ title: defaultTitle, content: htmlContent }];
+
+      // 💡 智慧副標題修正：如果完全沒抓到正規章節，且 defaultTitle 帶有多層底線（例如 情報_精選網站_風俗），則直接取最後一段當副標題名稱，不再命名為「全本內文」
+      if (chapters.length === 1 && chapters[0].content !== "") {
+        const parts = defaultTitle.split(/[_ -]+/);
+        if (parts.length >= 3) {
+          chapters[0].title = parts[parts.length - 1]; // 例如取 "風俗"
+        } else if (parts.length === 2) {
+          chapters[0].title = parts[1];
+        } else {
+          chapters[0].title = defaultTitle;
+        }
       }
 
       chapters.forEach((chap, idx) => {
@@ -974,7 +983,7 @@
       }
     }
 
-    // 📂 匯入 Word (具備自動去重、單一檔案覆蓋機制)
+    // 📂 匯入 Word (具備自動解析三段命名與去重機制)
     async function handleWordUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -990,7 +999,7 @@
 
         let groupName = (currentSelectedGroup === 'ALL') ? '個人' : currentSelectedGroup;
         let seriesTitle = fullFileName;
-        let chapterTitle = "全本內文";
+        let chapterTitle = fullFileName;
 
         const validGroups = ['個人', '工作', '情報', '成人'];
         const parts = fullFileName.split(/[_ -]+/);
@@ -1002,12 +1011,13 @@
         } else if (parts.length >= 2 && validGroups.includes(parts[0].trim())) {
           groupName = parts[0].trim();
           seriesTitle = parts.slice(1).join("_").trim();
+          chapterTitle = parts.slice(1).join("_").trim();
         } else if (parts.length >= 2) {
           seriesTitle = parts[0].trim();
           chapterTitle = parts.slice(1).join("_").trim();
         }
 
-        const newParsedChapters = parseHtmlToChapters(htmlContent, chapterTitle);
+        const newParsedChapters = parseHtmlToChapters(htmlContent, fullFileName);
 
         statusBadge.textContent = "⏳ 檢查雲端舊文章...";
 
@@ -1072,8 +1082,8 @@
         statusBadge.textContent = "☁️ 已連線雲端";
         
         const message = (existingArticles && existingArticles.length > 0)
-          ? `更新成功！已更新檔案【${fullFileName}】並自動去重（系列其他章節已保留）\n分類：【${groupName}】\n系列：【${seriesTitle}】`
-          : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`;
+          ? `更新成功！已更新檔案【${fullFileName}】並自動去重\n分類：【${groupName}】\n系列：【${seriesTitle}】\n副標題：【${chapterTitle}】`
+          : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】\n副標題：【${chapterTitle}】`;
         
         alert(message);
         event.target.value = '';
