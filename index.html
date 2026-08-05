@@ -357,7 +357,6 @@
       flex-direction: column;
     }
 
-    /* 隱藏橫拉條 */
     .article-body {
       font-size: 1.05rem;
       line-height: 1.8;
@@ -366,7 +365,7 @@
       overflow-x: hidden; 
     }
 
-    /* 左右側隨上下捲動的滑動按鈕容器 */
+    /* 左右側隨上下捲動的滑動按鈕容器 (僅 Excel 表格出現時啟用) */
     .scroll-btn-left, .scroll-btn-right {
       position: absolute;
       top: 30%;
@@ -751,9 +750,9 @@
     }
 
     function extractChapterNumber(title, defaultIndex) {
-      const matchChapter = title.match(/第\s*([0-9]+)\s*章/);
+      const matchChapter = title.match(/第\s*([0-9零一二三四五六七八九十百]+)\s*章/);
       if (matchChapter) {
-        return parseInt(matchChapter[1], 10);
+        return parseChineseNumber(matchChapter[1]);
       }
       const allNumbers = title.match(/\d+/g);
       if (allNumbers && allNumbers.length > 0) {
@@ -762,6 +761,30 @@
       return defaultIndex;
     }
 
+    function parseChineseNumber(str) {
+      const numMap = { '零':0, '一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10, '百':100 };
+      if (!isNaN(str)) return parseInt(str, 10);
+      let total = 0;
+      let temp = 0;
+      for (let i = 0; i < str.length; i++) {
+        let char = str[i];
+        let val = numMap[char];
+        if (val === 10) {
+          if (temp === 0) temp = 1;
+          total += temp * 10;
+          temp = 0;
+        } else if (val === 100) {
+          if (temp === 0) temp = 1;
+          total += temp * 100;
+          temp = 0;
+        } else {
+          temp = val;
+        }
+      }
+      return total + temp;
+    }
+
+    /* 強化版 Word 內文章節切分（支援第X章、第XX章、Chapter X、或粗體開頭標題） */
     function parseHtmlToChapters(htmlContent, defaultTitle) {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = htmlContent;
@@ -769,30 +792,63 @@
       let chapters = [];
       let currentChap = { title: defaultTitle, content: "" };
 
+      // 檢查是否為章節標題的寬鬆正則
+      const isChapterHeadingText = (text) => {
+        if (!text) return false;
+        // 匹配：第11章、第十一章、第 11 章、Chapter 11、第11節...等
+        return /^(第\s*[0-9零一二三四五六七八九十百]+\s*[章篇節]|Chapter\s*\d+)/i.test(text.trim());
+      };
+
+      if (elements.length === 0) {
+        // 如果沒有結構化標籤，直接把整段文字當作內容
+        return [{ title: defaultTitle, content: htmlContent, order: 0 }];
+      }
+
       elements.forEach(el => {
         const text = el.textContent.trim();
-        const isChapterHeading = /^第[一二三四五六七八九十百0-9]+章/.test(text) || /^Chapter\s*\d+/i.test(text) || /^第[一二三四五六七八九十百0-9]+篇/.test(text);
+        // 判斷是否為標題標籤 (H1-H6) 或者是內文寫著「第X章」開頭的段落
+        const isHeadingTag = /^H[1-6]$/i.test(el.tagName);
+        const isHeadingText = isChapterHeadingText(text);
 
-        if (isChapterHeading && currentChap.content.trim() !== "") {
-          chapters.push(currentChap);
-          currentChap = { title: text, content: "" };
-        } else if (isChapterHeading) {
-          currentChap.title = text;
+        if ((isHeadingTag || isHeadingText) && text.length < 50) {
+          // 如果當前章節已經有內容了，先存檔前一個章節
+          if (currentChap.content.trim() !== "") {
+            chapters.push(currentChap);
+            currentChap = { title: text, content: "" };
+          } else {
+            // 如果前一個章節內容是空的，直接把標題覆蓋過去
+            currentChap.title = text;
+          }
         } else {
           currentChap.content += el.outerHTML;
         }
       });
 
+      // 推入最後一個章節
       chapters.push(currentChap);
 
-      if (chapters.length === 1 && chapters[0].content !== "") {
-        const parts = defaultTitle.split(/[_ -]+/);
-        if (parts.length >= 3) {
-          chapters[0].title = parts[parts.length - 1]; 
-        } else if (parts.length === 2) {
-          chapters[0].title = parts[1];
-        } else {
-          chapters[0].title = defaultTitle;
+      // 如果切分後發現全部都沒切到（只有1章，且標題跟預設一樣），嘗試用內文尋找是否有包含「第...章」的段落強制切分
+      if (chapters.length <= 1) {
+        let subChapters = [];
+        let curTitle = defaultTitle;
+        let curContent = "";
+
+        elements.forEach(el => {
+          const txt = el.textContent.trim();
+          if (isChapterHeadingText(txt) && txt.length < 50) {
+            if (curContent.trim() !== "") {
+              subChapters.push({ title: curTitle, content: curContent });
+            }
+            curTitle = txt;
+            curContent = "";
+          } else {
+            curContent += el.outerHTML;
+          }
+        });
+        subChapters.push({ title: curTitle, content: curContent });
+
+        if (subChapters.length > 1) {
+          chapters = subChapters;
         }
       }
 
@@ -1053,13 +1109,15 @@
       document.getElementById('content-area').scrollTop = 0;
       document.getElementById('article-body').scrollLeft = 0;
 
-      // 🎯 判斷內文是否包含表格（若為 Excel 匯入產生的表格，則顯示左右捲動按鈕，否則隱藏）
+      // 🎯 判斷內文是否包含表格：只有「Excel 檔案」產生的內容才顯示左右浮動捲動按鈕，Word 檔不顯示
       const bodyEl = document.getElementById('article-body');
       const hasTable = bodyEl.querySelector('table') !== null;
+      const isExcelFile = currentCategory.isExcel === true; // 從 Excel 標記判斷
+      
       const scrollLeftBtn = document.getElementById('scrollLeftBtn');
       const scrollRightBtn = document.getElementById('scrollRightBtn');
 
-      if (hasTable) {
+      if (hasTable && isExcelFile) {
         scrollLeftBtn.classList.remove('hidden');
         scrollRightBtn.classList.remove('hidden');
       } else {
@@ -1126,6 +1184,7 @@
         statusBadge.textContent = "⏳ 解析中...";
         let htmlContent = "";
         let newParsedChapters = [];
+        let isExcel = false;
 
         let groupName = (currentSelectedGroup === 'ALL') ? '個人' : currentSelectedGroup;
         let seriesTitle = fullFileName;
@@ -1150,10 +1209,12 @@
         const arrayBuffer = await file.arrayBuffer();
 
         if (fileExt === 'docx') {
+          isExcel = false;
           const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
           htmlContent = result.value;
           newParsedChapters = parseHtmlToChapters(htmlContent, fullFileName);
         } else if (fileExt === 'xlsx' || fileExt === 'xls') {
+          isExcel = true;
           const workbook = XLSX.read(arrayBuffer, { type: 'array' });
           newParsedChapters = [];
 
@@ -1234,6 +1295,7 @@
 
         const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
         if (matchedCat) {
+          matchedCat.isExcel = isExcel; // 標記是否為 Excel 檔案
           renderChapters(matchedCat);
           const newChapIndex = matchedCat.chapters.findIndex(ch => ch.title === chapterTitle || ch.title === matchedCat.chapters[0].title);
           selectChapter(newChapIndex !== -1 ? newChapIndex : 0);
