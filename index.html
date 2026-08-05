@@ -349,7 +349,6 @@
       flex: 1;
     }
 
-    /* 內文與表格滾動區容器包裝 */
     .article-body-wrapper {
       position: relative;
       flex: 1;
@@ -365,7 +364,6 @@
       overflow-x: hidden; 
     }
 
-    /* 左右側隨上下捲動的滑動按鈕容器 (僅 Excel 表格出現時啟用) */
     .scroll-btn-left, .scroll-btn-right {
       position: absolute;
       top: 30%;
@@ -406,7 +404,6 @@
       text-indent: 2em;
     }
 
-    /* Excel 表格樣式 */
     .article-body table {
       width: max-content;
       min-width: 100%;
@@ -551,7 +548,7 @@
         </select>
       </div>
 
-      <!-- 匯入 Word / Excel 檔案區塊 -->
+      <!-- 匯入檔案按鈕區域 -->
       <div id="import-section" class="import-section">
         <label for="file-input" class="import-btn-label">📂 匯入 Word / Excel</label>
         <input type="file" id="file-input" accept=".docx, .xlsx, .xls" class="hidden" onchange="handleFileUpload(event)">
@@ -578,7 +575,6 @@
           <h1 id="article-title" class="article-title">請選擇文章</h1>
         </div>
         
-        <!-- 包裝容器與左右側跟隨捲動的滑動按鈕 -->
         <div class="article-body-wrapper">
           <button class="scroll-btn-left hidden" id="scrollLeftBtn" title="向左捲動" onclick="scrollTable(-300)">◀</button>
           <div id="article-body" class="article-body">請從左側選單選擇文章，或點擊「📂 匯入 Word / Excel」新增檔案。</div>
@@ -618,7 +614,6 @@
       setupButtonPositionTracking();
     });
 
-    /* 讓左右按鈕隨著「內文上下捲動條」一起在畫面上上下移動 */
     function setupButtonPositionTracking() {
       const contentArea = document.getElementById('content-area');
       const btnLeft = document.getElementById('scrollLeftBtn');
@@ -632,7 +627,6 @@
       });
     }
 
-    /* 點擊左右按鈕平滑滾動表格 */
     function scrollTable(offset) {
       const bodyEl = document.getElementById('article-body');
       bodyEl.scrollBy({ left: offset, behavior: 'smooth' });
@@ -784,39 +778,57 @@
       return total + temp;
     }
 
-    /* 強化版 Word 內文章節切分（支援第X章、第XX章、Chapter X、或粗體開頭標題） */
     function parseHtmlToChapters(htmlContent, defaultTitle) {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = htmlContent;
+      
+      const chapterRegex = /第\s*(?:&nbsp;|<[^>]+>)*\s*([0-9零一二三四五六七八九十百]+)\s*(?:&nbsp;|<[^>]+>)*\s*章/g;
+      let fullTextHtml = tempDiv.innerHTML;
+      
+      const matches = fullTextHtml.match(chapterRegex);
+      if (matches && matches.length > 1) {
+        let splitParts = fullTextHtml.split(new RegExp(`(?=第\\s*(?:&nbsp;|<[^>]+>)*\\s*[0-9零一二三四五六七八九十百]+\\s*(?:&nbsp;|<[^>]+>)*\\s*章)`, 'g'));
+        let chapters = [];
+
+        splitParts.forEach((part, idx) => {
+          const titleMatch = part.match(chapterRegex);
+          let chapTitle = titleMatch ? titleMatch[0].replace(/<[^>]+>/g, '').trim() : (idx === 0 ? defaultTitle : `第 ${idx} 章`);
+          
+          chapters.push({
+            title: chapTitle,
+            content: part,
+            order: extractChapterNumber(chapTitle, idx)
+          });
+        });
+
+        if (chapters.length > 1) {
+          return chapters;
+        }
+      }
+
       const elements = Array.from(tempDiv.children);
       let chapters = [];
       let currentChap = { title: defaultTitle, content: "" };
 
-      // 檢查是否為章節標題的寬鬆正則
       const isChapterHeadingText = (text) => {
         if (!text) return false;
-        // 匹配：第11章、第十一章、第 11 章、Chapter 11、第11節...等
-        return /^(第\s*[0-9零一二三四五六七八九十百]+\s*[章篇節]|Chapter\s*\d+)/i.test(text.trim());
+        return /^第\s*[0-9零一二三四五六七八九十百]+\s*章/i.test(text.trim());
       };
 
       if (elements.length === 0) {
-        // 如果沒有結構化標籤，直接把整段文字當作內容
         return [{ title: defaultTitle, content: htmlContent, order: 0 }];
       }
 
       elements.forEach(el => {
         const text = el.textContent.trim();
-        // 判斷是否為標題標籤 (H1-H6) 或者是內文寫著「第X章」開頭的段落
         const isHeadingTag = /^H[1-6]$/i.test(el.tagName);
         const isHeadingText = isChapterHeadingText(text);
 
         if ((isHeadingTag || isHeadingText) && text.length < 50) {
-          // 如果當前章節已經有內容了，先存檔前一個章節
           if (currentChap.content.trim() !== "") {
             chapters.push(currentChap);
             currentChap = { title: text, content: "" };
           } else {
-            // 如果前一個章節內容是空的，直接把標題覆蓋過去
             currentChap.title = text;
           }
         } else {
@@ -824,33 +836,7 @@
         }
       });
 
-      // 推入最後一個章節
       chapters.push(currentChap);
-
-      // 如果切分後發現全部都沒切到（只有1章，且標題跟預設一樣），嘗試用內文尋找是否有包含「第...章」的段落強制切分
-      if (chapters.length <= 1) {
-        let subChapters = [];
-        let curTitle = defaultTitle;
-        let curContent = "";
-
-        elements.forEach(el => {
-          const txt = el.textContent.trim();
-          if (isChapterHeadingText(txt) && txt.length < 50) {
-            if (curContent.trim() !== "") {
-              subChapters.push({ title: curTitle, content: curContent });
-            }
-            curTitle = txt;
-            curContent = "";
-          } else {
-            curContent += el.outerHTML;
-          }
-        });
-        subChapters.push({ title: curTitle, content: curContent });
-
-        if (subChapters.length > 1) {
-          chapters = subChapters;
-        }
-      }
 
       chapters.forEach((chap, idx) => {
         chap.order = extractChapterNumber(chap.title, idx);
@@ -1109,10 +1095,9 @@
       document.getElementById('content-area').scrollTop = 0;
       document.getElementById('article-body').scrollLeft = 0;
 
-      // 🎯 判斷內文是否包含表格：只有「Excel 檔案」產生的內容才顯示左右浮動捲動按鈕，Word 檔不顯示
       const bodyEl = document.getElementById('article-body');
       const hasTable = bodyEl.querySelector('table') !== null;
-      const isExcelFile = currentCategory.isExcel === true; // 從 Excel 標記判斷
+      const isExcelFile = currentCategory.isExcel === true; 
       
       const scrollLeftBtn = document.getElementById('scrollLeftBtn');
       const scrollRightBtn = document.getElementById('scrollRightBtn');
@@ -1188,7 +1173,6 @@
 
         let groupName = (currentSelectedGroup === 'ALL') ? '個人' : currentSelectedGroup;
         let seriesTitle = fullFileName;
-        let chapterTitle = fullFileName;
 
         const validGroups = ['個人', '工作', '情報', '成人'];
         const parts = fullFileName.split(/[_ -]+/);
@@ -1196,14 +1180,11 @@
         if (parts.length >= 3 && validGroups.includes(parts[0].trim())) {
           groupName = parts[0].trim();
           seriesTitle = parts[1].trim();
-          chapterTitle = parts.slice(2).join("_").trim();
         } else if (parts.length >= 2 && validGroups.includes(parts[0].trim())) {
           groupName = parts[0].trim();
           seriesTitle = parts.slice(1).join("_").trim();
-          chapterTitle = parts.slice(1).join("_").trim();
         } else if (parts.length >= 2) {
           seriesTitle = parts[0].trim();
-          chapterTitle = parts.slice(1).join("_").trim();
         }
 
         const arrayBuffer = await file.arrayBuffer();
@@ -1232,7 +1213,7 @@
             htmlContent = newParsedChapters[0].content;
           } else {
             htmlContent = "<p>空白試算表</p>";
-            newParsedChapters = [{ title: chapterTitle, content: htmlContent, order: 0 }];
+            newParsedChapters = [{ title: fullFileName, content: htmlContent, order: 0 }];
           }
         } else {
           alert("不支援的檔案格式！僅支援 .docx 與 .xlsx / .xls");
@@ -1242,40 +1223,41 @@
 
         statusBadge.textContent = "⏳ 檢查雲端舊文章...";
 
+        // 改良比對邏輯：同時檢查 完整檔名 (title) 或 系列名稱 (category_title) 是否符合，確保同系列重新上傳能正確被覆蓋
         const { data: existingArticles, error: fetchError } = await dbClient
           .from('articles')
-          .select('id, title, chapters')
-          .eq('title', fullFileName)
+          .select('id, title, category_title, group, chapters')
           .eq('group', groupName);
 
         if (fetchError) throw fetchError;
 
+        let targetId = null;
+        if (existingArticles && existingArticles.length > 0) {
+          const matched = existingArticles.find(art => 
+            art.title === fullFileName || art.category_title === seriesTitle
+          );
+          if (matched) {
+            targetId = matched.id;
+          }
+        }
+
         statusBadge.textContent = "⏳ 上傳更新內容...";
 
-        if (existingArticles && existingArticles.length > 0) {
-          const targetId = existingArticles.id;
-          
-          let existingChapters = existingArticles.chapters || [];
-          if (!Array.isArray(existingChapters)) existingChapters = [];
-
-          const chapterMap = new Map();
-          existingChapters.forEach(ch => chapterMap.set(ch.title, ch));
-          newParsedChapters.forEach(ch => chapterMap.set(ch.title, ch));
-
-          const mergedChapters = Array.from(chapterMap.values());
-          mergedChapters.sort((a, b) => (a.order || 0) - (b.order || 0));
-
+        if (targetId) {
+          // 找到舊資料，直接更新
           const { error: updateError } = await dbClient
             .from('articles')
             .update({
+              title: fullFileName,
               content: htmlContent,
-              chapters: mergedChapters,
+              chapters: newParsedChapters,
               category_title: seriesTitle 
             })
             .eq('id', targetId);
 
           if (updateError) throw updateError;
         } else {
+          // 沒有舊資料，新增一筆
           const customId = "art_" + Date.now();
           const payload = {
             id: customId,
@@ -1295,19 +1277,14 @@
 
         const matchedCat = articlesData.find(c => c.group === groupName && c.categoryTitle === seriesTitle);
         if (matchedCat) {
-          matchedCat.isExcel = isExcel; // 標記是否為 Excel 檔案
+          matchedCat.isExcel = isExcel;
           renderChapters(matchedCat);
-          const newChapIndex = matchedCat.chapters.findIndex(ch => ch.title === chapterTitle || ch.title === matchedCat.chapters[0].title);
-          selectChapter(newChapIndex !== -1 ? newChapIndex : 0);
+          selectChapter(0);
         }
 
         statusBadge.textContent = "☁️ 已連線雲端";
         
-        const message = (existingArticles && existingArticles.length > 0)
-          ? `更新成功！已更新檔案【${fullFileName}】並自動去重\n分類：【${groupName}】\n系列：【${seriesTitle}】`
-          : `匯入成功！\n分類：【${groupName}】\n系列：【${seriesTitle}】`;
-        
-        alert(message);
+        alert(`匯入成功！已成功切出 ${newParsedChapters.length} 個章節，並已同步更新至最新內容。`);
         event.target.value = '';
       } catch (err) {
         console.error("上傳失敗:", err);
