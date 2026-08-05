@@ -548,7 +548,7 @@
         </select>
       </div>
 
-      <!-- 匯入 Word / Excel 檔案區塊 -->
+      <!-- 匯入檔案按鈕區域 -->
       <div id="import-section" class="import-section">
         <label for="file-input" class="import-btn-label">📂 匯入 Word / Excel</label>
         <input type="file" id="file-input" accept=".docx, .xlsx, .xls" class="hidden" onchange="handleFileUpload(event)">
@@ -778,35 +778,22 @@
       return total + temp;
     }
 
-    /* 🚀 超強升級版：強制掃描內文中的「第XX章」自動切分（即使整個 Word 黏在同一個段落也能切開） */
     function parseHtmlToChapters(htmlContent, defaultTitle) {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = htmlContent;
       
-      // 正則：匹配「第11章」、「第十一章」、「第 11 章」等
-      const chapterRegex = /(第\s*[0-9零一二三四五六七八九十百]+\s*章)/g;
-
-      // 如果整篇文字直接包在同一個大區塊或沒有結構，我們用正則直接把 HTML 拆片
+      const chapterRegex = /第\s*(?:&nbsp;|<[^>]+>)*\s*([0-9零一二三四五六七八九十百]+)\s*(?:&nbsp;|<[^>]+>)*\s*章/g;
       let fullTextHtml = tempDiv.innerHTML;
       
-      // 檢查是否含有多個章節關鍵字
       const matches = fullTextHtml.match(chapterRegex);
       if (matches && matches.length > 1) {
-        // 利用正則把 HTML 以章節標題做切割
-        // 我們在標題前加上一個特殊分隔符
-        let splitParts = fullTextHtml.split(new RegExp(`(?=${chapterRegex.source})`, 'g'));
+        let splitParts = fullTextHtml.split(new RegExp(`(?=第\\s*(?:&nbsp;|<[^>]+>)*\\s*[0-9零一二三四五六七八九十百]+\\s*(?:&nbsp;|<[^>]+>)*\\s*章)`, 'g'));
         let chapters = [];
 
         splitParts.forEach((part, idx) => {
-          // 嘗試從這段開頭抓出章節名稱
           const titleMatch = part.match(chapterRegex);
-          let chapTitle = titleMatch ? titleMatch[1].trim() : (idx === 0 ? defaultTitle : `第 ${idx} 章`);
+          let chapTitle = titleMatch ? titleMatch[0].replace(/<[^>]+>/g, '').trim() : (idx === 0 ? defaultTitle : `第 ${idx} 章`);
           
-          // 清理標題，如果標題太長（比如把後面幾百字也吃進去），截取前 15 個字以內
-          if (chapTitle.length > 20) {
-            chapTitle = chapTitle.substring(0, 15);
-          }
-
           chapters.push({
             title: chapTitle,
             content: part,
@@ -819,14 +806,13 @@
         }
       }
 
-      // 備用方案：照原本的標籤元素逐行檢查
       const elements = Array.from(tempDiv.children);
       let chapters = [];
       let currentChap = { title: defaultTitle, content: "" };
 
       const isChapterHeadingText = (text) => {
         if (!text) return false;
-        return /^(第\s*[0-9零一二三四五六七八九十百]+\s*[章篇節]|Chapter\s*\d+)/i.test(text.trim());
+        return /^第\s*[0-9零一二三四五六七八九十百]+\s*章/i.test(text.trim());
       };
 
       if (elements.length === 0) {
@@ -1187,7 +1173,6 @@
 
         let groupName = (currentSelectedGroup === 'ALL') ? '個人' : currentSelectedGroup;
         let seriesTitle = fullFileName;
-        let chapterTitle = fullFileName;
 
         const validGroups = ['個人', '工作', '情報', '成人'];
         const parts = fullFileName.split(/[_ -]+/);
@@ -1195,14 +1180,11 @@
         if (parts.length >= 3 && validGroups.includes(parts[0].trim())) {
           groupName = parts[0].trim();
           seriesTitle = parts[1].trim();
-          chapterTitle = parts.slice(2).join("_").trim();
         } else if (parts.length >= 2 && validGroups.includes(parts[0].trim())) {
           groupName = parts[0].trim();
           seriesTitle = parts.slice(1).join("_").trim();
-          chapterTitle = parts.slice(1).join("_").trim();
         } else if (parts.length >= 2) {
           seriesTitle = parts[0].trim();
-          chapterTitle = parts.slice(1).join("_").trim();
         }
 
         const arrayBuffer = await file.arrayBuffer();
@@ -1231,7 +1213,7 @@
             htmlContent = newParsedChapters[0].content;
           } else {
             htmlContent = "<p>空白試算表</p>";
-            newParsedChapters = [{ title: chapterTitle, content: htmlContent, order: 0 }];
+            newParsedChapters = [{ title: fullFileName, content: htmlContent, order: 0 }];
           }
         } else {
           alert("不支援的檔案格式！僅支援 .docx 與 .xlsx / .xls");
@@ -1254,21 +1236,11 @@
         if (existingArticles && existingArticles.length > 0) {
           const targetId = existingArticles[0].id;
           
-          let existingChapters = existingArticles[0].chapters || [];
-          if (!Array.isArray(existingChapters)) existingChapters = [];
-
-          const chapterMap = new Map();
-          existingChapters.forEach(ch => chapterMap.set(ch.title, ch));
-          newParsedChapters.forEach(ch => chapterMap.set(ch.title, ch));
-
-          const mergedChapters = Array.from(chapterMap.values());
-          mergedChapters.sort((a, b) => (a.order || 0) - (b.order || 0));
-
           const { error: updateError } = await dbClient
             .from('articles')
             .update({
               content: htmlContent,
-              chapters: mergedChapters,
+              chapters: newParsedChapters,
               category_title: seriesTitle 
             })
             .eq('id', targetId);
@@ -1296,13 +1268,12 @@
         if (matchedCat) {
           matchedCat.isExcel = isExcel;
           renderChapters(matchedCat);
-          const newChapIndex = matchedCat.chapters.findIndex(ch => ch.title === chapterTitle || ch.title === matchedCat.chapters[0].title);
-          selectChapter(newChapIndex !== -1 ? newChapIndex : 0);
+          selectChapter(0);
         }
 
         statusBadge.textContent = "☁️ 已連線雲端";
         
-        alert(`匯入成功！已成功切出 ${newParsedChapters.length} 個章節。`);
+        alert(`匯入成功！已成功切出 ${newParsedChapters.length} 個章節，並已同步更新至最新內容。`);
         event.target.value = '';
       } catch (err) {
         console.error("上傳失敗:", err);
