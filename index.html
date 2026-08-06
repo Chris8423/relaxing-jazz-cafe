@@ -802,6 +802,15 @@
         });
 
         if (chapters.length > 1) {
+          // 過濾掉標題過長、包含整串檔名雜訊、或內容完全空白的誤判章節
+          chapters = chapters.filter(chap => {
+            const cleanTitle = chap.title.replace(/<[^>]+>/g, '').trim();
+            const textContent = chap.content.replace(/<[^>]+>/g, '').trim();
+            // 如果標題太長（超過30字，通常是把一整行當成標題）或是跟預設檔名高度雷同且內容極少，則過濾掉
+            if (cleanTitle.length > 30 && !cleanTitle.includes('章')) return false;
+            if (cleanTitle === defaultTitle && textContent.length < 5) return false;
+            return true;
+          });
           return chapters;
         }
       }
@@ -837,6 +846,15 @@
       });
 
       chapters.push(currentChap);
+
+      // 過濾掉不合法的章節
+      chapters = chapters.filter(chap => {
+        const cleanTitle = chap.title.replace(/<[^>]+>/g, '').trim();
+        const textContent = chap.content.replace(/<[^>]+>/g, '').trim();
+        if (cleanTitle.length > 30 && !cleanTitle.includes('章')) return false;
+        if (cleanTitle === defaultTitle && textContent.length < 5) return false;
+        return true;
+      });
 
       chapters.forEach((chap, idx) => {
         chap.order = extractChapterNumber(chap.title, idx);
@@ -1223,7 +1241,6 @@
 
         statusBadge.textContent = "⏳ 檢查雲端舊文章...";
 
-        // 改良比對邏輯：同時檢查 完整檔名 (title) 或 系列名稱 (category_title) 是否符合，確保同系列重新上傳能正確被覆蓋
         const { data: existingArticles, error: fetchError } = await dbClient
           .from('articles')
           .select('id, title, category_title, group, chapters')
@@ -1244,7 +1261,6 @@
         statusBadge.textContent = "⏳ 上傳更新內容...";
 
         if (targetId) {
-          // 找到舊資料，直接更新
           const { error: updateError } = await dbClient
             .from('articles')
             .update({
@@ -1257,7 +1273,6 @@
 
           if (updateError) throw updateError;
         } else {
-          // 沒有舊資料，新增一筆
           const customId = "art_" + Date.now();
           const payload = {
             id: customId,
